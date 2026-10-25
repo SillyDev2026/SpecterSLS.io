@@ -34,3 +34,6 @@
 .box-rec span{color:#b9c5bf;font:10px var(--mono)}
 #boxState.box-error{color:#ffaaa7}
 @media(max-width:480px){.box-body{padding:13px}.box-display{padding:13px}.box-freq{font-size:28px}.box-btns button{font-size:9px}}
+
+/* Compact Razr cover displays: avoid cramped dual columns. */
+@media(max-width:410px){.spirit-panel .box-row{grid-template-columns:1fr}.box-field{margin-bottom:9px}.box-freq{font-size:26px}.box-btns{grid-template-columns:1fr 1fr}}
