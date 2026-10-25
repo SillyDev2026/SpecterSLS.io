@@ -167,6 +167,8 @@
     // Conservative canvas scaling avoids exhausting the GPU fill-rate on foldable displays.
     const maxDpr=({battery:1,balanced:1.15,fast:1.25,turbo:1.45,ultra:1.5})[settings.speed]||1.15;
     const dpr=Math.min(maxDpr,window.devicePixelRatio||1);
+    // Hidden mobile tabs report zero-size; do not destroy a running recording canvas.
+    if(ui.stage.clientWidth<16||ui.stage.clientHeight<16)return;
     const w=Math.max(1,Math.round(ui.stage.clientWidth*dpr)),h=Math.max(1,Math.round(ui.stage.clientHeight*dpr));
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;ui.displaySize.textContent=`${w} × ${h}`;dotEngine?.invalidate();}
   }
