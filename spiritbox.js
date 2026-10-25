@@ -213,7 +213,7 @@
       // reject audio autoplay after an awaited network directory request.
       if(options.mode==="web"&&!stations.length)throw Error("Tap LOAD STATIONS first, then START SWEEP.");
       if(options.mode!=="web")await initAudio();
-      active=true;ui.boxStart.textContent="■ STOP BOX";ui.boxStart.classList.add("running");
+      active=true;ui.boxStart.textContent="■ STOP BOX";ui.boxStart.classList.add("running");say("SWEEP ACTIVE");
       if(context){master.gain.value=0;rfGain.gain.value=0;clipGain.gain.value=0;}
       index=options.direction==="down"?(options.mode==="rf"?bandFrequency(0).total:options.mode==="clips"?clipSources.length:stations.length): -1;
       stationIndex=index;cycle=0;step();updateInputs();scopeLoop();
