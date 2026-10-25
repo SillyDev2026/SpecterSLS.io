@@ -1,0 +1,19 @@
+{
+  "id": "./",
+  "name": "SpecterSLS Investigation Studio",
+  "short_name": "SpecterSLS",
+  "description": "SLS-style pose scanning and local investigation logs",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#090f17",
+  "theme_color": "#090f17",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}
