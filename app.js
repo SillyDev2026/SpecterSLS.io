@@ -21,7 +21,7 @@
   } catch {}
   const allowedModes = ["sls","night","mono","normal","dots"];
   if (!allowedModes.includes(settings.mode)) settings.mode = "sls";
-  if (!["balanced","battery","fast"].includes(settings.speed)) settings.speed = "balanced";
+  if (!["balanced","battery","fast","turbo","ultra"].includes(settings.speed)) settings.speed = "balanced";
   settings.visibility = Math.max(20,Math.min(90,Math.round(settings.visibility / 5) * 5));
   settings.dotDensity=Math.max(1,Math.min(3,Math.round(settings.dotDensity)));
   settings.dotSensitivity=Math.max(1,Math.min(3,Math.round(settings.dotSensitivity)));
@@ -135,7 +135,11 @@
   const dotSampler=document.createElement("canvas");
   const dotContext=dotSampler.getContext("2d",{willReadFrequently:true});
   let prevDotLight=null,dotParticles=[],lastDotUpdate=0,dotsFrozen=false;
-  const speedInterval=()=>({battery:170,balanced:100,fast:66})[settings.speed]||100;
+  // Higher camera/overlay FPS is independent of slower, synchronous AI inference.
+  // Target rates are upper bounds, not a claim of measured device performance.
+  const speedInterval=()=>({battery:170,balanced:100,fast:50,turbo:33,ultra:28})[settings.speed]||100;
+  let renderFrames=0,renderWindowAt=0,lastHudTime=0,averageInferenceMs=0;
+  let dynamicModelInterval=0;
   function scannerStatus(mode){
     ui.stateLabel.textContent=mode;
     ui.stateBadge.className=`state-badge ${mode==="SCANNING"?"active":mode==="RECORDING"?"recording":""}`;
@@ -154,7 +158,9 @@
   const showLoading=(title,note)=>{ui.loadingPanel.hidden=false;ui.loadingTitle.textContent=title;ui.loadingSubtitle.textContent=note;};
   const hideLoading=()=>ui.loadingPanel.hidden=true;
   function resizeCanvas() {
-    const dpr=Math.min(2,window.devicePixelRatio||1);
+    // Conservative canvas scaling avoids exhausting the GPU fill-rate on foldable displays.
+    const maxDpr=({battery:1,balanced:1.15,fast:1.25,turbo:1.45,ultra:1.5})[settings.speed]||1.15;
+    const dpr=Math.min(maxDpr,window.devicePixelRatio||1);
     const w=Math.max(1,Math.round(ui.stage.clientWidth*dpr)),h=Math.max(1,Math.round(ui.stage.clientHeight*dpr));
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     ui.displaySize.textContent=`${canvas.width} × ${canvas.height}`;
@@ -216,7 +222,7 @@
     lastDotUpdate=now;
   }
   function drawDotCloud(now){
-    if(!dotsFrozen&&now-lastDotUpdate>({battery:250,balanced:160,fast:105})[settings.speed])sampleDotCloud(now);
+    if(!dotsFrozen&&now-lastDotUpdate>({battery:250,balanced:150,fast:90,turbo:66,ultra:50})[settings.speed])sampleDotCloud(now);
     const scale=Math.min(2,canvas.width/800);
     ctx.save();
     for(const dot of dotParticles){
@@ -228,28 +234,46 @@
   }
   function renderFrame(){
     if(!scanning)return;
+    // Request the next frame immediately so the canvas keeps up with camera refresh.
+    raf=requestAnimationFrame(renderFrame);
     resizeCanvas();
+    const now=performance.now();
+    if(!renderWindowAt)renderWindowAt=now;
+    renderFrames++;
+    if(now-renderWindowAt>=850){
+      ui.renderFpsMetric.textContent=String(Math.round(renderFrames*1000/(now-renderWindowAt)));
+      renderFrames=0;renderWindowAt=now;
+      inferenceTimes=inferenceTimes.filter(t=>now-t<1000);
+      ui.fpsMetric.textContent=String(inferenceTimes.length);
+    }
     ctx.fillStyle="#091219";ctx.fillRect(0,0,canvas.width,canvas.height);
     drawVideo();
-    const now=performance.now();
     if(settings.mode==="dots")drawDotCloud(now);
-    if(landmarker && video.readyState>=2 && now-lastModelTime>=speedInterval() && video.currentTime!==lastVideoTime){
+    // Video/currentTime gating prevents wasted inference of duplicate camera frames.
+    // Adaptively limit ML CPU/GPU work when a detection takes longer than budget.
+    const modelBudget=Math.max(speedInterval(),dynamicModelInterval);
+    if(landmarker && video.readyState>=2 && now-lastModelTime>=modelBudget && video.currentTime!==lastVideoTime){
       lastModelTime=now;lastVideoTime=video.currentTime;
       try{
+        const started=performance.now();
         const result=landmarker.detectForVideo(video,now);
+        const elapsed=performance.now()-started;
+        averageInferenceMs=averageInferenceMs?averageInferenceMs*.82+elapsed*.18:elapsed;
+        dynamicModelInterval=Math.min(220,Math.max(0,averageInferenceMs*1.2));
         currentPoses=(result.landmarks||[]).slice(0,3);
         updateTracking(currentPoses,now);
-        inferenceTimes.push(now);inferenceTimes=inferenceTimes.filter(t=>now-t<1000);
-        ui.fpsMetric.textContent=String(inferenceTimes.length);
+        inferenceTimes.push(now);
       }catch(e){
-        if(!modelFailed){modelFailed=true;ui.diagModel.textContent="INFERENCE FAILED";toast(`Pose model failed: ${e.message}`,true);}
+        if(!modelFailed){modelFailed=true;ui.diagModel.textContent="INFERENCE FAILED";toast("Pose model failed: "+e.message,true);}
         landmarker?.close?.();landmarker=null;
       }
     }
     if(settings.skeleton)drawPoses(now);
-    ui.hudClock.textContent=fmtTime(Date.now()-sessionStart,true);
-    ui.durationMetric.textContent=fmtTime(Date.now()-sessionStart);
-    raf=requestAnimationFrame(renderFrame);
+    if(now-lastHudTime>150){
+      ui.hudClock.textContent=fmtTime(Date.now()-sessionStart,true);
+      ui.durationMetric.textContent=fmtTime(Date.now()-sessionStart);
+      lastHudTime=now;
+    }
   }
   function updateTracking(poses,now){
     const found=[];
@@ -325,7 +349,7 @@
     if(!navigator.mediaDevices?.getUserMedia){toast("Camera needs HTTPS and browser permission.",true);return;}
     starting=true;renderButtons();showLoading("Connecting camera","Requesting video permission...");
     try{
-      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:front?"user":"environment"},width:{ideal:1280},height:{ideal:720}},audio:false});
+      stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:front?"user":"environment"},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:settings.speed==="ultra"?60:settings.speed==="turbo"?60:30,max:60}},audio:false});
       video.srcObject=stream;await video.play();
       ui.diagCamera.textContent="CONNECTED";
       scannerStatus("SCANNING");
@@ -348,7 +372,7 @@
     if(recording)stopRecording();
     scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();
     ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];
-    ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.dotCount.textContent="0";
+    ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.renderFpsMetric.textContent="0";renderFrames=0;renderWindowAt=0;dynamicModelInterval=0;averageInferenceMs=0;ui.dotCount.textContent="0";
     ui.engineLabel.textContent=landmarker?"MODEL READY":"AI MODEL STANDBY";
     ui.diagCamera.textContent="OFFLINE";scannerStatus("IDLE");renderButtons();
   }
@@ -527,7 +551,7 @@
       appendEvent("capture","Optical dot map saved",`${normalized.length} 2D camera-derived dots exported to ${name}`);
       toast("2D optical dot map downloaded.");
     });
-    ui.speedSelect.addEventListener("change",()=>{settings.speed=ui.speedSelect.value;persistSettings();});
+    ui.speedSelect.addEventListener("change",()=>{settings.speed=ui.speedSelect.value;resizeCanvas();persistSettings();toast("Performance target updated. Actual FPS depends on device and camera.");});
     ui.dotDensity.addEventListener("input",()=>{settings.dotDensity=Number(ui.dotDensity.value);
       ui.dotDensityLabel.textContent=["","Low","Medium","High"][settings.dotDensity];prevDotLight=null;lastDotUpdate=0;persistSettings();});
     ui.dotSensitivity.addEventListener("input",()=>{settings.dotSensitivity=Number(ui.dotSensitivity.value);
@@ -547,6 +571,8 @@
     window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installPrompt=e;ui.installBtn.hidden=false;});
     ui.installBtn.addEventListener("click",async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;ui.installBtn.hidden=true;});
   }
+  // A narrow integration bridge for the separate spirit-box engine.
+  window.SpecterSLS={log:(kind,title,description)=>appendEvent(kind,title,description)};
   function boot(){
     ui.thresholdRange.value=settings.visibility;ui.thresholdLabel.textContent=`${settings.visibility}%`;
     ui.speedSelect.value=settings.speed;
