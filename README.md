@@ -1,4 +1,38 @@
-# SpecterSLS.io · v2.1 (Optical Dots + Experimental AR Depth)
+# SpecterSLS.io · v2.3 — Spirit Box Studio + Higher-Refresh Scanner
+
+**Live site (when GitHub Pages is enabled):** https://sillydev2026.github.io/SpecterSLS.io/
+
+## New in v2.3
+
+### Spirit Box
+- **Synthetic RF sweep**: Web Audio static/filter synthesis with an AM/FM-style readout. Adjustable hop intervals **50 ms–30 seconds**, forward/reverse/random tuning, volume control and audio spectrum visualization. Displayed RF numbers **do not represent received radio frequencies**.
+- **Local clip bank**: Load audio files directly from your phone and hop between snippets at your chosen interval. Imported files remain in your browser and are never uploaded.
+- **Real Internet Radio**: On demand, retrieve HTTPS streaming stations from the public [Radio Browser](https://www.radio-browser.info/) directory for the US, UK, Canada, Australia or Germany, then switch stations. Minimum practical interval is **3 seconds**; station switching can be delayed by network buffering, and some stations may reject playback or be unavailable.
+- **Evidence markers**: Manually mark the currently displayed frequency/stream and sweep interval in your investigation log.
+- **Audio recording**: Export browser-generated static or your local clip-bank output to WebM/Opus (or supported MP4 audio). Due to cross-origin web audio protections, **internet streams cannot be recorded by this tool**.
+- **Safe defaults**: Starts only with an explicit tap. Stops when the tab goes into the background and does not automatically upload audio or recordings.
+
+### Scanner speed
+- **Turbo** targets up to 30 model inferences per second when possible; **Ultra** requests up to 60 camera/render frames/s where the camera/browser support it. These are targets, **not measured guarantees**.
+- The interface reports *separate live values* for canvas render FPS and model inference FPS.
+- Model inference throttles adaptively when the phone is under load. Higher frame rates increase battery use and heat.
+- Canvas-resolution limits reduce GPU fill-rate and improve live dot-overlay performance on foldable phones.
+
+### Compatibility and disclosures
+- The Razr Ultra 2026 has no dedicated LiDAR hardware. Optical dots remain 2D image measurements; AR Depth Beta requires WebXR/ARCore depth support exposed by the phone and browser.
+- A phone browser **cannot tune physical AM/FM bands** using camera or AR APIs. Synthetic RF sounds and frequency numbers are a demonstration. Real Internet Radio switches between live online streams, **not terrestrial radio hardware**.
+- An SLS pose is an algorithmic estimation of human-like landmarks. A waveform or heard syllable is not evidence of ghosts or spirits.
+- Always begin at low volume, especially with headphones. Avoid using the app where situational awareness is important.
+
+### Using the Spirit Box
+1. Open the **Investigation** tab on mobile and locate **03 · Spirit Box**.
+2. Choose **Synthetic RF Static**, **Local Audio Clips**, or **Real Internet Radio**.
+3. Choose hop direction, time per hop, and volume. For live internet streams, load a station directory first and use a rate of 3 seconds or longer.
+4. Tap **Start Sweep**. Use **Mark Audio Event** to annotate a moment.
+5. In RF/clip mode, tap **Record Box** to save the audio locally. Tap Stop when done.
+
+---
+
 
 **Live site:** https://sillydev2026.github.io/SpecterSLS.io/
 
