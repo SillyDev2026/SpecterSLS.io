@@ -304,8 +304,8 @@
   ui.boxDirection.addEventListener("change",()=>{options.direction=ui.boxDirection.value;persist();});
   ui.boxRate.addEventListener("change",updateRate);
   ui.boxVolume.addEventListener("input",()=>{options.volume=Number(ui.boxVolume.value);ui.boxVolumeText.textContent=options.volume+"%";persist();streamAudio.volume=options.volume/100;if(active&&options.mode==="rf"&&master)master.gain.setTargetAtTime(gainForVolume(),context.currentTime,.02);if(active&&options.mode==="clips"&&master)master.gain.setTargetAtTime(gainForVolume()*2,context.currentTime,.02);});
-  ui.boxCountry.addEventListener("change",()=>{loadToken++;stations=[];ui.boxDirectoryStatus.textContent="Country changed. Reload stations.";if(active&&options.mode==="web")stop();});
-  ui.boxGenre.addEventListener("change",()=>{loadToken++;stations=[];ui.boxDirectoryStatus.textContent="Category changed. Reload stations.";if(active&&options.mode==="web")stop();});
+  ui.boxCountry.addEventListener("change",()=>{loadToken++;stations=[];ui.boxLoadStations.disabled=false;ui.boxDirectoryStatus.textContent="Country changed. Reload stations.";if(active&&options.mode==="web")stop();});
+  ui.boxGenre.addEventListener("change",()=>{loadToken++;stations=[];ui.boxLoadStations.disabled=false;ui.boxDirectoryStatus.textContent="Category changed. Reload stations.";if(active&&options.mode==="web")stop();});
   ui.boxLoadStations.addEventListener("click",async()=>{try{await loadStations();say("STATION LIST READY");}catch(e){say(e.message,true);}});
   ui.boxClipInput.addEventListener("change",()=>loadClips(ui.boxClipInput.files));
   ui.boxMark.addEventListener("click",()=>{log("Spirit box observation",options.mode.toUpperCase()+" · "+ui.boxFrequency.textContent+" · "+currentName+" · "+duration()+"ms");say("OBSERVATION MARKED");});
