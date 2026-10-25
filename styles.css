@@ -20,3 +20,16 @@
 @media(max-width:780px){.app-grid{display:block}.mobile-nav{display:flex;gap:7px;padding:13px 0;border-bottom:1px solid var(--border)}.mobile-nav button{flex:1;padding:12px 4px;background:#101c24;color:#9ab0aa;border:1px solid var(--border);font-size:11px}.mobile-nav button.selected{color:var(--lime);border-color:#6a9c51;background:#1a3023}.app-grid[data-mobile-tab="scan"] .sidebar{display:none}.app-grid[data-mobile-tab="console"] .work,.app-grid[data-mobile-tab="settings"] .work{display:none}.app-grid[data-mobile-tab="settings"] .sidebar>.console-panel:not(.settings-panel),.app-grid[data-mobile-tab="settings"] .sidebar>.privacy-foot{display:none}.app-grid[data-mobile-tab="console"] .sidebar>.settings-panel{display:none}.stage{height:min(69vh,650px);min-height:350px}.header{height:72px}.header-meta .head-build{display:none}}
 @media(max-width:480px){.brand-name{font-size:16px}.brand-tagline{font-size:8px}.mark{height:34px;width:34px}.header-meta{font-size:8px}.header-install{font-size:9px;padding:7px}.work-head{align-items:start}.work-head h1{font-size:24px}.work-head p{font-size:11px}.state-badge{font-size:9px;padding:7px}.session-identifier{max-width:90px;font-size:8px}.stage{height:min(65vh,570px)}.camera-dock{display:grid;grid-template-columns:1.7fr repeat(3,.77fr) repeat(3,36px)}.camera-dock button{height:48px;min-width:0}.action-start{min-width:0;font-size:9px!important}.action-icon{font-size:13px;margin-right:3px}.dock-btn{min-width:0}.dock-btn small{font-size:8px}.dock-glyph{font-size:14px}.dock-icon{width:auto;font-size:17px!important}.quick-preset{display:block}.preset-options{margin-top:9px}.preset{flex:1;padding:8px;font-size:9px}.stat-grid{grid-template-columns:1fr 1fr}.stat:nth-child(2){border-right:0}.stat:nth-child(-n+2){border-bottom:1px solid var(--border)}.stat-main{font-size:25px}.hud{left:28px;right:28px;font-size:8px}.idle-description{font-size:11px}.footer{font-size:8px}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+
+/* v2.1 optical dot-cloud controls */
+.quick-preset{flex-wrap:wrap}
+.dots-preset{border-color:#548453!important;color:#b9ff86!important}
+.dots-preset.active{background:#b1ff6b!important;color:#10200c!important}
+.depth-status-strip{border:1px solid #314943;background:#101e22;display:flex;gap:15px;align-items:center;justify-content:space-between;flex-wrap:wrap;padding:11px 14px;margin:4px 0 14px;font:10px var(--mono);color:#91b4a3}
+.depth-status-strip strong{color:#b1ff6b;font-weight:600;margin-right:8px}
+.depth-status-strip a{color:#beffa3;border-bottom:1px dotted #65985c;text-decoration:none;padding-bottom:3px}
+.depth-status-strip a:hover{color:#fff}
+.depth-status-strip #dotCount{font-weight:700;color:#edf7dc}
+.settings-content input[type=range]{display:block;margin:4px 0 10px}
+@media(max-width:530px){.depth-status-strip{flex-direction:column;align-items:flex-start;font-size:9px}.quick-preset .preset-options{width:100%}.quick-preset .preset-options button{flex:1 1 auto}}
