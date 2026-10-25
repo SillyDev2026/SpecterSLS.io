@@ -33,3 +33,10 @@
 .depth-status-strip #dotCount{font-weight:700;color:#edf7dc}
 .settings-content input[type=range]{display:block;margin:4px 0 10px}
 @media(max-width:530px){.depth-status-strip{flex-direction:column;align-items:flex-start;font-size:9px}.quick-preset .preset-options{width:100%}.quick-preset .preset-options button{flex:1 1 auto}}
+
+
+.dot-actions{border:1px solid #35573f;border-top:0;background:#101f19;padding:10px 12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:-14px;margin-bottom:14px}
+.dot-actions button{border:1px solid #486f46;background:#1a3124;color:#baff91;min-height:37px;padding:0 11px;font:10px var(--mono);letter-spacing:.2px}
+.dot-actions button:hover{border-color:var(--lime)}
+.dot-actions span{font:9px var(--mono);color:#86a89a;margin-left:auto}
+@media(max-width:500px){.dot-actions button{flex:1}.dot-actions span{width:100%;text-align:left;margin-left:0}}
