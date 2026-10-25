@@ -1,7 +1,7 @@
 (function specterApp() {
   "use strict";
   const $ = id => document.getElementById(id);
-  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn"];
+  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","dotCount","opticalPointLabel"];
   const ui = Object.fromEntries(ids.map(id => [id,$(id)]));
   const canvas = ui.cameraCanvas, video = ui.cameraVideo, ctx = canvas.getContext("2d",{alpha:false});
   const waveCtx = ui.waveCanvas.getContext("2d");
@@ -11,7 +11,7 @@
   const TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
   const STORE_KEY = "spectersls.v2.sessions";
   const SET_KEY = "spectersls.v2.settings";
-  const defaultSettings = {mode:"sls",visibility:55,speed:"balanced",skeleton:true,trails:true,wake:false};
+  const defaultSettings = {mode:"sls",visibility:55,speed:"balanced",skeleton:true,trails:true,wake:false,dotDensity:2,dotSensitivity:2};
   let settings = {...defaultSettings}, sessions = [], activeId = "";
   try {
     const fromStorage = JSON.parse(localStorage.getItem(SET_KEY)||"{}");
@@ -19,10 +19,12 @@
       if (typeof fromStorage[key] === typeof defaultSettings[key]) settings[key] = fromStorage[key];
     }
   } catch {}
-  const allowedModes = ["sls","night","mono","normal"];
+  const allowedModes = ["sls","night","mono","normal","dots"];
   if (!allowedModes.includes(settings.mode)) settings.mode = "sls";
   if (!["balanced","battery","fast"].includes(settings.speed)) settings.speed = "balanced";
   settings.visibility = Math.max(20,Math.min(90,Math.round(settings.visibility / 5) * 5));
+  settings.dotDensity=Math.max(1,Math.min(3,Math.round(settings.dotDensity)));
+  settings.dotSensitivity=Math.max(1,Math.min(3,Math.round(settings.dotSensitivity)));
   try {
     const stored = JSON.parse(localStorage.getItem(STORE_KEY)||"{}");
     if (Array.isArray(stored.sessions)) {
@@ -130,6 +132,9 @@
   let lastVideoTime=-1,lastModelTime=0,inferenceTimes=[],sessionStart=0,raf=0,front=false,torch=false,wakeLock=null;
   let currentPoses=[],trails=[],tracked=[],nextTrackId=1,modelStatus="STANDBY",recorder=null,recorderStream=null,parts=[];
   let micStream=null,audioContext=null,analyser=null,audioBuffer=null,audioRaf=0,peakSince=0,lastPeak=0,installPrompt=null;
+  const dotSampler=document.createElement("canvas");
+  const dotContext=dotSampler.getContext("2d",{willReadFrequently:true});
+  let prevDotLight=null,dotParticles=[],lastDotUpdate=0;
   const speedInterval=()=>({battery:170,balanced:100,fast:66})[settings.speed]||100;
   function scannerStatus(mode){
     ui.stateLabel.textContent=mode;
@@ -165,6 +170,7 @@
     if(settings.mode==="night")ctx.filter="grayscale(1) sepia(1) hue-rotate(48deg) saturate(3) brightness(1.3) contrast(1.3)";
     else if(settings.mode==="mono")ctx.filter="grayscale(1) contrast(1.55)";
     else if(settings.mode==="sls")ctx.filter="grayscale(1) sepia(.6) hue-rotate(58deg) saturate(1.6) brightness(.85)";
+    else if(settings.mode==="dots"){ctx.filter="grayscale(1) sepia(.8) hue-rotate(45deg) saturate(2) brightness(.7)";ctx.globalAlpha=.18;}
     const a=coverParams();
     if(front){ctx.translate(canvas.width,0);ctx.scale(-1,1);}
     ctx.drawImage(video,a.left,a.top,a.width,a.height);
@@ -174,12 +180,59 @@
     const a=coverParams();
     return {x:front?canvas.width-(a.left+p.x*a.width):a.left+p.x*a.width,y:a.top+p.y*a.height};
   }
+  // Optical dot cloud: image-gradient and frame-motion points, not LiDAR depth.
+  // Every dot is derived from the camera pixels; no invented 3D distances are reported.
+  function sampleDotCloud(now){
+    if(!dotContext||!video.videoWidth)return;
+    const resolution=({1:60,2:90,3:125})[settings.dotDensity]||90;
+    const width=resolution,height=Math.max(18,Math.round(resolution*canvas.height/canvas.width));
+    if(dotSampler.width!==width||dotSampler.height!==height){
+      dotSampler.width=width;dotSampler.height=height;prevDotLight=null;
+    }
+    const cover=coverParams(),scaleX=width/canvas.width,scaleY=height/canvas.height;
+    dotContext.save();dotContext.fillStyle="#000";dotContext.fillRect(0,0,width,height);
+    if(front){dotContext.translate(width,0);dotContext.scale(-1,1);}
+    dotContext.drawImage(video,cover.left*scaleX,cover.top*scaleY,cover.width*scaleX,cover.height*scaleY);
+    dotContext.restore();
+    const rgba=dotContext.getImageData(0,0,width,height).data;
+    const current=new Uint8Array(width*height),points=[];
+    for(let k=0;k<current.length;k++){
+      const p=k*4;current[k]=Math.round(rgba[p]*.2126+rgba[p+1]*.7152+rgba[p+2]*.0722);
+    }
+    const threshold=({1:74,2:48,3:29})[settings.dotSensitivity]||48;
+    for(let y=2;y<height-2;y++)for(let x=2;x<width-2;x++){
+      const i=y*width+x,lum=current[i];
+      const edge=Math.abs(lum-current[i-1])+Math.abs(lum-current[i+1])
+        +Math.abs(lum-current[i-width])+Math.abs(lum-current[i+width]);
+      const motion=prevDotLight?Math.abs(lum-prevDotLight[i]):0;
+      const textured=edge>threshold||motion>Math.max(14,threshold*.7);
+      const ambient=(lum>85&&((x*5+y*3)%7===0));
+      if(!textured&&!ambient)continue;
+      points.push({x:(x+.5)/width*canvas.width,y:(y+.5)/height*canvas.height,
+        e:Math.min(1,edge/185),m:motion>24});
+    }
+    prevDotLight=current;dotParticles=points;
+    ui.dotCount.textContent=points.length.toLocaleString();
+    lastDotUpdate=now;
+  }
+  function drawDotCloud(now){
+    if(now-lastDotUpdate>({battery:250,balanced:160,fast:105})[settings.speed])sampleDotCloud(now);
+    const scale=Math.min(2,canvas.width/800);
+    ctx.save();
+    for(const dot of dotParticles){
+      ctx.fillStyle=dot.m?"rgba(110,243,255,.94)":`rgba(175,255,106,${(.44+dot.e*.52).toFixed(2)})`;
+      const radius=(dot.m?2.6:dot.e>.43?1.9:1.15)*scale;
+      ctx.fillRect(dot.x-radius/2,dot.y-radius/2,radius,radius);
+    }
+    ctx.restore();
+  }
   function renderFrame(){
     if(!scanning)return;
     resizeCanvas();
     ctx.fillStyle="#091219";ctx.fillRect(0,0,canvas.width,canvas.height);
     drawVideo();
     const now=performance.now();
+    if(settings.mode==="dots")drawDotCloud(now);
     if(landmarker && video.readyState>=2 && now-lastModelTime>=speedInterval() && video.currentTime!==lastVideoTime){
       lastModelTime=now;lastVideoTime=video.currentTime;
       try{
@@ -295,7 +348,7 @@
     if(recording)stopRecording();
     scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();
     ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];
-    ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";
+    ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.dotCount.textContent="0";
     ui.engineLabel.textContent=landmarker?"MODEL READY":"AI MODEL STANDBY";
     ui.diagCamera.textContent="OFFLINE";scannerStatus("IDLE");renderButtons();
   }
@@ -403,7 +456,9 @@
   }
   function setMode(mode){
     if(!allowedModes.includes(mode))return;
-    settings.mode=mode;ui.hudMode.textContent=({sls:"SLS GREEN",night:"NIGHT VISION",mono:"MONO",normal:"NATURAL"})[mode];
+    settings.mode=mode;ui.hudMode.textContent=({sls:"SLS GREEN",night:"NIGHT VISION",mono:"MONO",normal:"NATURAL",dots:"OPTICAL DOT CLOUD"})[mode];
+    ui.opticalPointLabel.textContent=mode==="dots"?"LIVE CAMERA PIXEL DOTS":"OPTICAL DOT FIELD";
+    if(mode!=="dots")ui.dotCount.textContent="0";
     for(const b of document.querySelectorAll("[data-mode]")){
       b.classList.toggle("active",b.dataset.mode===mode);
       b.setAttribute("aria-pressed",String(b.dataset.mode===mode));
@@ -454,6 +509,10 @@
       settings.visibility=Number(ui.thresholdRange.value);ui.thresholdLabel.textContent=`${settings.visibility}%`;persistSettings();
     });
     ui.speedSelect.addEventListener("change",()=>{settings.speed=ui.speedSelect.value;persistSettings();});
+    ui.dotDensity.addEventListener("input",()=>{settings.dotDensity=Number(ui.dotDensity.value);
+      ui.dotDensityLabel.textContent=["","Low","Medium","High"][settings.dotDensity];prevDotLight=null;lastDotUpdate=0;persistSettings();});
+    ui.dotSensitivity.addEventListener("input",()=>{settings.dotSensitivity=Number(ui.dotSensitivity.value);
+      ui.dotSensitivityLabel.textContent=["","Low","Medium","High"][settings.dotSensitivity];lastDotUpdate=0;persistSettings();});
     ui.skeletonCheck.addEventListener("change",()=>{settings.skeleton=ui.skeletonCheck.checked;persistSettings();});
     ui.trailCheck.addEventListener("change",()=>{settings.trails=ui.trailCheck.checked;trails=[];persistSettings();});
     ui.wakeCheck.addEventListener("change",()=>{
@@ -471,7 +530,10 @@
   }
   function boot(){
     ui.thresholdRange.value=settings.visibility;ui.thresholdLabel.textContent=`${settings.visibility}%`;
-    ui.speedSelect.value=settings.speed;ui.skeletonCheck.checked=settings.skeleton;
+    ui.speedSelect.value=settings.speed;
+    ui.dotDensity.value=settings.dotDensity;ui.dotDensityLabel.textContent=["","Low","Medium","High"][settings.dotDensity];
+    ui.dotSensitivity.value=settings.dotSensitivity;ui.dotSensitivityLabel.textContent=["","Low","Medium","High"][settings.dotSensitivity];
+    ui.skeletonCheck.checked=settings.skeleton;
     ui.trailCheck.checked=settings.trails;ui.wakeCheck.checked=settings.wake;
     setMode(settings.mode);persist();renderSessions();renderButtons();resizeCanvas();sizeWave();attach();drawWave();switchTab("scan");
     if(!window.isSecureContext||!navigator.mediaDevices?.getUserMedia){ui.diagCamera.textContent="HTTPS REQUIRED";ui.engineLabel.textContent="HTTPS NEEDED"; }
