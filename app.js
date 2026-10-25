@@ -1,7 +1,7 @@
 (function specterApp() {
   "use strict";
   const $ = id => document.getElementById(id);
-  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","renderFpsMetric","dotCount","opticalPointLabel","dotActions","freezeDotBtn","exportDotBtn"];
+  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","renderFpsMetric","dotPalette","dotView","dotOverlay","dotCount","opticalPointLabel","dotActions","freezeDotBtn","exportDotBtn"];
   const ui = Object.fromEntries(ids.map(id => [id,$(id)]));
   const canvas = ui.cameraCanvas, video = ui.cameraVideo, ctx = canvas.getContext("2d",{alpha:false});
   const waveCtx = ui.waveCanvas.getContext("2d");
@@ -11,7 +11,7 @@
   const TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
   const STORE_KEY = "spectersls.v2.sessions";
   const SET_KEY = "spectersls.v2.settings";
-  const defaultSettings = {mode:"sls",visibility:55,speed:"balanced",skeleton:true,trails:true,wake:false,dotDensity:2,dotSensitivity:2};
+  const defaultSettings = {mode:"sls",visibility:55,speed:"balanced",skeleton:true,trails:true,wake:false,dotDensity:3,dotSensitivity:3,dotPalette:"lime",dotView:"surface",dotOverlay:false};
   let settings = {...defaultSettings}, sessions = [], activeId = "";
   try {
     const fromStorage = JSON.parse(localStorage.getItem(SET_KEY)||"{}");
@@ -23,8 +23,10 @@
   if (!allowedModes.includes(settings.mode)) settings.mode = "sls";
   if (!["balanced","battery","fast","turbo","ultra"].includes(settings.speed)) settings.speed = "balanced";
   settings.visibility = Math.max(20,Math.min(90,Math.round(settings.visibility / 5) * 5));
-  settings.dotDensity=Math.max(1,Math.min(3,Math.round(settings.dotDensity)));
-  settings.dotSensitivity=Math.max(1,Math.min(3,Math.round(settings.dotSensitivity)));
+  settings.dotDensity=Math.max(1,Math.min(5,Math.round(settings.dotDensity)));
+  settings.dotSensitivity=Math.max(1,Math.min(5,Math.round(settings.dotSensitivity)));
+  if(!["lime","cyan","thermal"].includes(settings.dotPalette))settings.dotPalette="lime";
+  if(!["surface","edges","all"].includes(settings.dotView))settings.dotView="surface";
   try {
     const stored = JSON.parse(localStorage.getItem(STORE_KEY)||"{}");
     if (Array.isArray(stored.sessions)) {
@@ -135,6 +137,10 @@
   const dotSampler=document.createElement("canvas");
   const dotContext=dotSampler.getContext("2d",{willReadFrequently:true});
   let prevDotLight=null,dotParticles=[],lastDotUpdate=0,dotsFrozen=false;
+  const dotEngine=window.SpecterDotEngine?.create({
+    canvas,video,ctx,getFront:()=>front,getSettings:()=>settings,
+    onSample:(points)=>{dotParticles=points;ui.dotCount.textContent=points.length.toLocaleString();}
+  });
   // Higher camera/overlay FPS is independent of slower, synchronous AI inference.
   // Target rates are upper bounds, not a claim of measured device performance.
   const speedInterval=()=>({battery:170,balanced:100,fast:50,turbo:33,ultra:28})[settings.speed]||100;
@@ -176,7 +182,7 @@
     if(settings.mode==="night")ctx.filter="grayscale(1) sepia(1) hue-rotate(48deg) saturate(3) brightness(1.3) contrast(1.3)";
     else if(settings.mode==="mono")ctx.filter="grayscale(1) contrast(1.55)";
     else if(settings.mode==="sls")ctx.filter="grayscale(1) sepia(.6) hue-rotate(58deg) saturate(1.6) brightness(.85)";
-    else if(settings.mode==="dots"){ctx.filter="grayscale(1) sepia(.8) hue-rotate(45deg) saturate(2) brightness(.7)";ctx.globalAlpha=.18;}
+    else if(settings.mode==="dots"){ctx.filter="grayscale(1) sepia(.8) hue-rotate(45deg) saturate(2) brightness(.7)";ctx.globalAlpha=settings.dotOverlay?.24:0;}
     const a=coverParams();
     if(front){ctx.translate(canvas.width,0);ctx.scale(-1,1);}
     ctx.drawImage(video,a.left,a.top,a.width,a.height);
@@ -186,61 +192,9 @@
     const a=coverParams();
     return {x:front?canvas.width-(a.left+p.x*a.width):a.left+p.x*a.width,y:a.top+p.y*a.height};
   }
-  // Optical dot cloud: image-gradient and frame-motion points, not LiDAR depth.
-  // Every dot is derived from the camera pixels; no invented 3D distances are reported.
-  function sampleDotCloud(now){
-    if(!dotContext||!video.videoWidth)return;
-    const resolution=({1:60,2:90,3:125})[settings.dotDensity]||90;
-    const width=resolution,height=Math.max(18,Math.round(resolution*canvas.height/canvas.width));
-    if(dotSampler.width!==width||dotSampler.height!==height){
-      dotSampler.width=width;dotSampler.height=height;prevDotLight=null;
-    }
-    const cover=coverParams(),scaleX=width/canvas.width,scaleY=height/canvas.height;
-    dotContext.save();dotContext.fillStyle="#000";dotContext.fillRect(0,0,width,height);
-    if(front){dotContext.translate(width,0);dotContext.scale(-1,1);}
-    dotContext.drawImage(video,cover.left*scaleX,cover.top*scaleY,cover.width*scaleX,cover.height*scaleY);
-    dotContext.restore();
-    const rgba=dotContext.getImageData(0,0,width,height).data;
-    const current=new Uint8Array(width*height),points=[];
-    for(let k=0;k<current.length;k++){
-      const p=k*4;current[k]=Math.round(rgba[p]*.2126+rgba[p+1]*.7152+rgba[p+2]*.0722);
-    }
-    const threshold=({1:74,2:48,3:29})[settings.dotSensitivity]||48;
-    for(let y=2;y<height-2;y++)for(let x=2;x<width-2;x++){
-      const i=y*width+x,lum=current[i];
-      const edge=Math.abs(lum-current[i-1])+Math.abs(lum-current[i+1])
-        +Math.abs(lum-current[i-width])+Math.abs(lum-current[i+width]);
-      const motion=prevDotLight?Math.abs(lum-prevDotLight[i]):0;
-      const textured=edge>threshold||motion>Math.max(14,threshold*.7);
-      const ambient=(lum>85&&((x*5+y*3)%7===0));
-      if(!textured&&!ambient)continue;
-      points.push({x:(x+.5)/width*canvas.width,y:(y+.5)/height*canvas.height,
-        e:Math.min(1,edge/185),m:motion>24});
-    }
-    prevDotLight=current;dotParticles=points;
-    ui.dotCount.textContent=points.length.toLocaleString();
-    lastDotUpdate=now;
-  }
   function drawDotCloud(now){
-    if(!dotsFrozen&&now-lastDotUpdate>({battery:250,balanced:150,fast:90,turbo:66,ultra:50})[settings.speed])sampleDotCloud(now);
-    // Cap dots drawn per frame and batch by color: no per-point fillStyle/text parsing.
-    // The sampler retains every measured optical point for export.
-    const cap=({battery:1200,balanced:2400,fast:3200,turbo:4500,ultra:5000})[settings.speed]||2400;
-    const stride=Math.max(1,Math.ceil(dotParticles.length/cap));
-    const scale=Math.min(2,canvas.width/800),base=Math.max(1,1.65*scale);
-    ctx.save();
-    ctx.fillStyle="rgba(175,255,106,.85)";
-    for(let i=0;i<dotParticles.length;i+=stride){
-      const d=dotParticles[i];if(d.m)continue;
-      const size=base*(d.e>.43?1.2:.8);
-      ctx.fillRect(d.x-size/2,d.y-size/2,size,size);
-    }
-    ctx.fillStyle="rgba(110,243,255,.95)";
-    for(let i=0;i<dotParticles.length;i+=stride){
-      const d=dotParticles[i];if(!d.m)continue;
-      const size=base*1.55;ctx.fillRect(d.x-size/2,d.y-size/2,size,size);
-    }
-    ctx.restore();
+    if(dotEngine){dotEngine.draw(now,dotsFrozen);return;}
+    ui.dotCount.textContent="0";
   }
   function renderFrame(){
     if(!scanning)return;
@@ -257,7 +211,7 @@
       ui.fpsMetric.textContent=String(inferenceTimes.length);
     }
     ctx.fillStyle="#091219";ctx.fillRect(0,0,canvas.width,canvas.height);
-    drawVideo();
+    if(settings.mode!=="dots"||settings.dotOverlay)drawVideo();
     if(settings.mode==="dots")drawDotCloud(now);
     // Video/currentTime gating prevents wasted inference of duplicate camera frames.
     // Adaptively limit ML CPU/GPU work when a detection takes longer than budget.
@@ -382,7 +336,7 @@
     if(recording)stopRecording();
     scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();
     ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];
-    ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.renderFpsMetric.textContent="0";renderFrames=0;renderWindowAt=0;dynamicModelInterval=0;averageInferenceMs=0;ui.dotCount.textContent="0";
+    ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.renderFpsMetric.textContent="0";renderFrames=0;renderWindowAt=0;dynamicModelInterval=0;averageInferenceMs=0;ui.dotCount.textContent="0";dotEngine?.clear();dotsFrozen=false;ui.freezeDotBtn.textContent="❄ FREEZE DOTS";
     ui.engineLabel.textContent=landmarker?"MODEL READY":"AI MODEL STANDBY";
     ui.diagCamera.textContent="OFFLINE";scannerStatus("IDLE");renderButtons();
   }
@@ -561,11 +515,14 @@
       appendEvent("capture","Optical dot map saved",`${normalized.length} 2D camera-derived dots exported to ${name}`);
       toast("2D optical dot map downloaded.");
     });
-    ui.speedSelect.addEventListener("change",()=>{settings.speed=ui.speedSelect.value;resizeCanvas();persistSettings();toast("Performance target updated. Actual FPS depends on device and camera.");});
+    ui.speedSelect.addEventListener("change",()=>{settings.speed=ui.speedSelect.value;resizeCanvas();dotEngine?.invalidate();persistSettings();toast("Performance target updated. Actual FPS depends on device and camera.");});
     ui.dotDensity.addEventListener("input",()=>{settings.dotDensity=Number(ui.dotDensity.value);
-      ui.dotDensityLabel.textContent=["","Low","Medium","High"][settings.dotDensity];prevDotLight=null;lastDotUpdate=0;persistSettings();});
+      ui.dotDensityLabel.textContent=["","Low","Medium","High","Very high","Ultra"][settings.dotDensity];dotEngine?.invalidate();persistSettings();});
     ui.dotSensitivity.addEventListener("input",()=>{settings.dotSensitivity=Number(ui.dotSensitivity.value);
-      ui.dotSensitivityLabel.textContent=["","Low","Medium","High"][settings.dotSensitivity];lastDotUpdate=0;persistSettings();});
+      ui.dotSensitivityLabel.textContent=["","Low","Medium","High","Very high","Ultra"][settings.dotSensitivity];dotEngine?.invalidate();persistSettings();});
+    ui.dotPalette.addEventListener("change",()=>{settings.dotPalette=ui.dotPalette.value;dotEngine?.invalidate();persistSettings();});
+    ui.dotView.addEventListener("change",()=>{settings.dotView=ui.dotView.value;dotEngine?.invalidate();persistSettings();});
+    ui.dotOverlay.addEventListener("change",()=>{settings.dotOverlay=ui.dotOverlay.checked;persistSettings();});
     ui.skeletonCheck.addEventListener("change",()=>{settings.skeleton=ui.skeletonCheck.checked;persistSettings();});
     ui.trailCheck.addEventListener("change",()=>{settings.trails=ui.trailCheck.checked;trails=[];persistSettings();});
     ui.wakeCheck.addEventListener("change",()=>{
@@ -586,8 +543,9 @@
   function boot(){
     ui.thresholdRange.value=settings.visibility;ui.thresholdLabel.textContent=`${settings.visibility}%`;
     ui.speedSelect.value=settings.speed;
-    ui.dotDensity.value=settings.dotDensity;ui.dotDensityLabel.textContent=["","Low","Medium","High"][settings.dotDensity];
-    ui.dotSensitivity.value=settings.dotSensitivity;ui.dotSensitivityLabel.textContent=["","Low","Medium","High"][settings.dotSensitivity];
+    ui.dotDensity.value=settings.dotDensity;ui.dotDensityLabel.textContent=["","Low","Medium","High","Very high","Ultra"][settings.dotDensity];
+    ui.dotSensitivity.value=settings.dotSensitivity;ui.dotSensitivityLabel.textContent=["","Low","Medium","High","Very high","Ultra"][settings.dotSensitivity];
+    ui.dotPalette.value=settings.dotPalette;ui.dotView.value=settings.dotView;ui.dotOverlay.checked=settings.dotOverlay;
     ui.skeletonCheck.checked=settings.skeleton;
     ui.trailCheck.checked=settings.trails;ui.wakeCheck.checked=settings.wake;
     setMode(settings.mode);persist();renderSessions();renderButtons();resizeCanvas();sizeWave();attach();drawWave();switchTab("scan");
