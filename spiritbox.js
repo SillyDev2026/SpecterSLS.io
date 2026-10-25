@@ -209,9 +209,10 @@
     if(options.mode==="clips"&&!clipSources.length){say("LOAD AUDIO CLIPS FIRST",true);return;}
     startingBox=true;ui.boxStart.disabled=true;
     try{
-      if(options.mode==="web"&&!stations.length)await loadStations();
-      else if(options.mode!=="web")await initAudio();
-      if(options.mode!=="web"&&!context)await initAudio();
+      // A live stream must start directly from a user tap or Android Chrome can
+      // reject audio autoplay after an awaited network directory request.
+      if(options.mode==="web"&&!stations.length)throw Error("Tap LOAD STATIONS first, then START SWEEP.");
+      if(options.mode!=="web")await initAudio();
       active=true;ui.boxStart.textContent="■ STOP BOX";ui.boxStart.classList.add("running");
       if(context){master.gain.value=0;rfGain.gain.value=0;clipGain.gain.value=0;}
       index=options.direction==="down"?(options.mode==="rf"?bandFrequency(0).total:options.mode==="clips"?clipSources.length:stations.length): -1;
