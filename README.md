@@ -4,7 +4,7 @@
 
 ## New in v2.1
 
-- **Optical DOT CLOUD**: green dots derived from live camera brightness gradients and frame-to-frame motion; dot density and sensitivity are configurable. This does **not** provide measured depth or LiDAR.
+- **Optical DOT CLOUD**: green dots derived from live camera brightness gradients and frame-to-frame motion; density and sensitivity controls, freeze/resume, and a downloadable JSON map of normalized 2D points. This does **not** provide measured depth or LiDAR.
 - **AR DEPTH (BETA)**: `depth.html` uses the WebXR Depth Sensing API for approximate real-world distances when supported. It requires HTTPS, Chrome/Android with compatible ARCore and an active immersive AR depth session. Some devices and browsers will reject the feature.
 - **Direct fallback**: unsupported devices can still use the 2D optical dot view.
 - **Local processing**: the page does not upload camera video or depth maps. MediaPipe assets are fetched from external hosted model resources when used.
