@@ -16,9 +16,10 @@
   if (!["up","down","random"].includes(options.direction)) options.direction="up";
   options.rate = Math.min(30000,Math.max(50,options.rate));
   options.volume = Math.min(100,Math.max(0,options.volume));
-  let context=null,noise=null,bandpass=null,lowpass=null,tone=null,toneGain=null,master=null,analyser=null,recordTap=null;
+  let context=null,noise=null,bandpass=null,lowpass=null,tone=null,toneGain=null,master=null,rfGain=null,clipGain=null,analyser=null,recordTap=null;
   let clipAudio=new Audio(),clipNode=null,streamAudio=new Audio(),clipSources=[],stations=[],active=false,stepTimer=0,animation=0;
-  let index=0,stationIndex=0,cycle=0,recording=null,recordChunks=[],recordStart=0,recordTimer=0,previousMode="",currentName="";
+  let index=0,stationIndex=0,cycle=0,recording=null,recordChunks=[],recordStart=0,recordTimer=0,currentName="";
+  let radioToken=0,loadToken=0,startingBox=false,skipTimer=0;
   let scopeCtx = ui.boxScope.getContext("2d");
   const persist = () => { try { localStorage.setItem(KEY,JSON.stringify(options)); } catch {} };
   const log = (title,description) => {
@@ -74,19 +75,21 @@
     analyser=context.createAnalyser();analyser.fftSize=256;analyser.smoothingTimeConstant=.55;
     recordTap=context.createMediaStreamDestination();
     master.connect(analyser);analyser.connect(context.destination);master.connect(recordTap);
+    rfGain=context.createGain();rfGain.gain.value=0;rfGain.connect(master);
+    clipGain=context.createGain();clipGain.gain.value=0;clipGain.connect(master);
     const buffer=context.createBuffer(1,context.sampleRate*2,context.sampleRate);
     const samples=buffer.getChannelData(0);
     for(let i=0;i<samples.length;i++)samples[i]=Math.random()*2-1;
     noise=context.createBufferSource();noise.buffer=buffer;noise.loop=true;
     bandpass=context.createBiquadFilter();bandpass.type="bandpass";bandpass.Q.value=.65;bandpass.frequency.value=900;
     lowpass=context.createBiquadFilter();lowpass.type="lowpass";lowpass.frequency.value=3600;
-    noise.connect(bandpass);bandpass.connect(lowpass);lowpass.connect(master);
+    noise.connect(bandpass);bandpass.connect(lowpass);lowpass.connect(rfGain);
     noise.start();
     tone=context.createOscillator();tone.type="sine";tone.frequency.value=630;
     toneGain=context.createGain();toneGain.gain.value=.016;
-    tone.connect(toneGain);toneGain.connect(master);tone.start();
+    tone.connect(toneGain);toneGain.connect(rfGain);tone.start();
     clipAudio.preload="auto";
-    clipNode=context.createMediaElementSource(clipAudio);clipNode.connect(master);
+    clipNode=context.createMediaElementSource(clipAudio);clipNode.connect(clipGain);
     await context.resume();
   }
   function gainForVolume(){ return Math.pow(options.volume/100,1.7)*.30; }
@@ -94,6 +97,7 @@
     index=advanceIndex(bandFrequency(0).total);
     const f=bandFrequency(index);
     const t=context.currentTime;
+    rfGain.gain.setTargetAtTime(1,t,.008);clipGain.gain.setTargetAtTime(0,t,.008);
     // Per-step filtering and amplitude mimic analog scanning static; no fake voices.
     const center=options.band==="AM"?320+((f.value-530)/1170)*2300:650+((f.value-88)/20)*4100;
     bandpass.frequency.setTargetAtTime(center,t,.01);
@@ -108,6 +112,8 @@
     if (!clipSources.length){say("LOAD AUDIO FILES FIRST",true);stop();return;}
     index=advanceIndex(clipSources.length);
     const entry=clipSources[index];
+    rfGain.gain.setTargetAtTime(0,context.currentTime,.006);
+    clipGain.gain.setTargetAtTime(1,context.currentTime,.006);
     clipAudio.pause();
     if (clipAudio.src!==entry.url)clipAudio.src=entry.url;
     try {
@@ -119,41 +125,75 @@
     currentName=entry.name;
   }
   async function loadStations() {
+    const token=++loadToken;
     ui.boxLoadStations.disabled=true;
     ui.boxDirectoryStatus.textContent="SEARCHING HTTPS STREAMS...";
     const country=ui.boxCountry.value,genre=ui.boxGenre.value;
     const hosts=["https://de1.api.radio-browser.info","https://nl1.api.radio-browser.info"];
+    let failure="No HTTPS stations found";
     for (const host of hosts) {
-      try {
-        const url=host+"/json/stations/search?countrycode="+encodeURIComponent(country)+"&hidebroken=true&order=clickcount&reverse=true&limit=100"+(genre==="all"?"":"&tag="+encodeURIComponent(genre));
-        const response=await fetch(url,{headers:{Accept:"application/json"},signal:AbortSignal.timeout(8500)});
-        if (!response.ok) throw Error("Directory HTTP "+response.status);
+      const controller=new AbortController();
+      const limit=window.setTimeout(()=>controller.abort(),8500);
+      try{
+        const url=host+"/json/stations/search?countrycode="+encodeURIComponent(country)
+          +"&hidebroken=true&order=clickcount&reverse=true&limit=150"
+          +(genre==="all"?"":"&tag="+encodeURIComponent(genre));
+        const response=await fetch(url,{signal:controller.signal,headers:{Accept:"application/json"}});
+        if(!response.ok)throw Error("Directory HTTP "+response.status);
         const raw=await response.json();
-        stations=raw.filter(x=>{
-          const stream=String(x.url_resolved||x.url||"");
-          const codec=String(x.codec||"").toLowerCase();
-          return stream.startsWith("https://") && !/\.m3u8(?:[?#]|$)/i.test(stream) && !/hls/i.test(codec) && (Number(x.bitrate)||0)<400;
-        }).slice(0,24).map(x=>({name:String(x.name||"Unnamed station").slice(0,70),url:String(x.url_resolved||x.url),uuid:String(x.stationuuid||"")}));
-        if (!stations.length)throw Error("No HTTPS audio streams available in this search.");
-        ui.boxDirectoryStatus.textContent=stations.length+" HTTPS STATIONS READY";
+        if(token!==loadToken)return false;
+        if(!Array.isArray(raw))throw Error("Invalid station directory response");
+        const unique=new Set();
+        const candidates=raw.filter(x=>{
+          const address=String(x.url_resolved||x.url||"");
+          if(!address.startsWith("https://")||unique.has(address))return false;
+          if(/\.m3u8(?:[?#]|$)/i.test(address)||String(x.codec||"").toLowerCase().includes("hls"))return false;
+          if((Number(x.bitrate)||0)>384)return false;
+          unique.add(address);return true;
+        }).slice(0,36).map(x=>({
+          name:String(x.name||"Unnamed radio station").replace(/[<>]/g,"").slice(0,70),
+          url:String(x.url_resolved||x.url)
+        }));
+        if(!candidates.length)throw Error("No suitable HTTPS audio streams");
+        stations=candidates;stationIndex=-1;index=-1;
+        ui.boxDirectoryStatus.textContent=stations.length+" HTTPS STATIONS · SOME MAY BE BLOCKED";
         ui.boxLoadStations.disabled=false;
-        return;
-      }catch(e){ ui.boxDirectoryStatus.textContent="Directory issue: "+e.message; }
+        return true;
+      }catch(e){failure=e.name==="AbortError"?"Station directory timed out":e.message;
+        if(token!==loadToken)return false;
+        ui.boxDirectoryStatus.textContent="TRYING ANOTHER DIRECTORY: "+failure;
+      }finally{window.clearTimeout(limit);}
     }
-    ui.boxLoadStations.disabled=false;
-    throw Error("Couldn't load playable streams. Try another country or use RF mode.");
+    if(token===loadToken){ui.boxLoadStations.disabled=false;ui.boxDirectoryStatus.textContent="STATION ERROR: "+failure;}
+    throw Error("Radio directory unavailable. Try again or use RF Static.");
   }
   function webStep(){
-    if (!stations.length){say("LOAD INTERNET STATIONS FIRST",true);stop();return;}
-    stationIndex=advanceIndex(stations.length);
+    if(!stations.length){say("LOAD INTERNET STATIONS FIRST",true);stop();return;}
+    radioToken++;
+    const token=radioToken;
+    if(options.direction==="random")stationIndex=Math.floor(Math.random()*stations.length);
+    else stationIndex=(stationIndex+(options.direction==="down"?stations.length-1:1))%stations.length;
     index=stationIndex;
     const entry=stations[stationIndex];
-    streamAudio.pause();
-    streamAudio.removeAttribute("src");
-    streamAudio.load();
+    streamAudio.onerror=null;
+    streamAudio.pause();streamAudio.removeAttribute("src");streamAudio.load();
     streamAudio.src=entry.url;streamAudio.volume=options.volume/100;
     currentName=entry.name;
-    streamAudio.play().then(()=>{if(active&&options.mode==="web")say("LIVE INTERNET STREAM");}).catch(()=>{if(active)say("STREAM BLOCKED OR OFFLINE",true);});
+    say("BUFFERING ONLINE AUDIO");
+    streamAudio.onerror=()=>{
+      if(!active||options.mode!=="web"||token!==radioToken)return;
+      say("STREAM UNAVAILABLE · SKIPPING",true);
+      window.clearTimeout(stepTimer);window.clearTimeout(skipTimer);
+      skipTimer=window.setTimeout(()=>{if(active&&token===radioToken)step();},500);
+    };
+    streamAudio.play().then(()=>{
+      if(active&&options.mode==="web"&&token===radioToken)say("LIVE INTERNET AUDIO");
+    }).catch(()=>{
+      if(!active||options.mode!=="web"||token!==radioToken)return;
+      say("STREAM REJECTED · SKIPPING",true);
+      window.clearTimeout(stepTimer);window.clearTimeout(skipTimer);
+      skipTimer=window.setTimeout(()=>{if(active&&token===radioToken)step();},500);
+    });
   }
   function step(){
     if (!active)return;
@@ -162,28 +202,34 @@
     else if(options.mode==="clips")clipStep();
     else webStep();
     setHeadline();
-    stepTimer=window.setTimeout(step,duration());
+    if(active&&!stepTimer)stepTimer=window.setTimeout(()=>{stepTimer=0;step();},duration());
   }
   async function start(){
-    if(active)return;
-    if(options.mode==="clips"&&!clipSources.length){say("SELECT ONE OR MORE AUDIO FILES FIRST",true);return;}
-    if(options.mode==="web"&&!stations.length){
-      try{await loadStations();}catch(e){say(e.message,true);return;}
-    }
+    if(active||startingBox)return;
+    if(options.mode==="clips"&&!clipSources.length){say("LOAD AUDIO CLIPS FIRST",true);return;}
+    startingBox=true;ui.boxStart.disabled=true;
     try{
-      if(options.mode!=="web")await initAudio();
-      active=true;previousMode=options.mode;
-      if(context)master.gain.value=0;
-      ui.boxStart.textContent="■ STOP BOX";ui.boxStart.classList.add("running");say("SWEEP ACTIVE");
-      index=options.direction==="down"?(options.mode==="rf"?bandFrequency(0).total-1:options.mode==="clips"?clipSources.length-1:stations.length-1):0;
-      stationIndex=index;step();updateInputs();scopeLoop();
-      log("Spirit box started",options.mode.toUpperCase()+" mode · "+duration()+" ms sweep · "+options.direction);
-    }catch(e){say(e.message||"Audio initialization failed",true);stop();}
+      if(options.mode==="web"&&!stations.length)await loadStations();
+      else if(options.mode!=="web")await initAudio();
+      if(options.mode!=="web"&&!context)await initAudio();
+      active=true;ui.boxStart.textContent="■ STOP BOX";ui.boxStart.classList.add("running");
+      if(context){master.gain.value=0;rfGain.gain.value=0;clipGain.gain.value=0;}
+      index=options.direction==="down"?(options.mode==="rf"?bandFrequency(0).total:options.mode==="clips"?clipSources.length:stations.length): -1;
+      stationIndex=index;cycle=0;step();updateInputs();scopeLoop();
+      log("Spirit box started",options.mode.toUpperCase()+" · "+duration()+"ms per step · "+options.direction);
+    }catch(e){active=false;say("START FAILED: "+(e.message||e),true);}
+    finally{startingBox=false;ui.boxStart.disabled=false;updateInputs();}
   }
   function stop(){
-    active=false;window.clearTimeout(stepTimer);stepTimer=0;
-    clipAudio.pause();streamAudio.pause();
-    if(context&&master)master.gain.setTargetAtTime(0,context.currentTime,.02);
+    active=false;radioToken++;
+    window.clearTimeout(stepTimer);stepTimer=0;window.clearTimeout(skipTimer);skipTimer=0;
+    clipAudio.pause();streamAudio.onerror=null;streamAudio.pause();
+    streamAudio.removeAttribute("src");streamAudio.load();
+    if(context&&master){
+      master.gain.setTargetAtTime(0,context.currentTime,.012);
+      rfGain.gain.setTargetAtTime(0,context.currentTime,.012);
+      clipGain.gain.setTargetAtTime(0,context.currentTime,.012);
+    }
     if(recording&&recording.state!=="inactive")recording.stop();
     ui.boxStart.textContent="▶ START SWEEP";ui.boxStart.classList.remove("running");
     say("STANDBY");updateInputs();
@@ -211,12 +257,12 @@
   }
   function updateMode(){
     if(active)stop();
-    options.mode=ui.boxMode.value;ui.boxDirectoryStatus.textContent=stations.length+" streams loaded";
+    loadToken++;options.mode=ui.boxMode.value;ui.boxDirectoryStatus.textContent=stations.length+" streams loaded";
     updateInputs();persist();
   }
   function updateRate(){
     options.rate=Number(ui.boxRate.value);persist();rateLabel();
-    if(active){window.clearTimeout(stepTimer);stepTimer=setTimeout(step,duration());}
+    if(active){window.clearTimeout(stepTimer);stepTimer=window.setTimeout(()=>{stepTimer=0;step();},duration());}
   }
   async function startRecord(){
     if(recording){recording.stop();return;}
@@ -247,10 +293,9 @@
     }catch(e){say("Record error: "+e.message,true);}
   }
   function loadClips(files){
-    clipAudio.pause();for(const entry of clipSources)URL.revokeObjectURL(entry.url);
+    if(active)stop();clipAudio.pause();clipAudio.removeAttribute("src");clipAudio.load();for(const entry of clipSources)URL.revokeObjectURL(entry.url);
     clipSources=Array.from(files||[]).filter(x=>x.type.startsWith("audio/")&&x.size<30_000_000).slice(0,20).map(x=>({name:x.name,url:URL.createObjectURL(x)}));
     ui.boxClipStatus.textContent=clipSources.length+" local audio files ready";setHeadline();
-    if(active)stop();
   }
   ui.boxStart.addEventListener("click",()=>active?stop():start());
   ui.boxMode.addEventListener("change",updateMode);
@@ -258,7 +303,8 @@
   ui.boxDirection.addEventListener("change",()=>{options.direction=ui.boxDirection.value;persist();});
   ui.boxRate.addEventListener("change",updateRate);
   ui.boxVolume.addEventListener("input",()=>{options.volume=Number(ui.boxVolume.value);ui.boxVolumeText.textContent=options.volume+"%";persist();streamAudio.volume=options.volume/100;if(active&&options.mode==="rf"&&master)master.gain.setTargetAtTime(gainForVolume(),context.currentTime,.02);if(active&&options.mode==="clips"&&master)master.gain.setTargetAtTime(gainForVolume()*2,context.currentTime,.02);});
-  ui.boxGenre.addEventListener("change",()=>{stations=[];ui.boxDirectoryStatus.textContent="Category changed. Reload stations.";if(active&&options.mode==="web")stop();});
+  ui.boxCountry.addEventListener("change",()=>{loadToken++;stations=[];ui.boxDirectoryStatus.textContent="Country changed. Reload stations.";if(active&&options.mode==="web")stop();});
+  ui.boxGenre.addEventListener("change",()=>{loadToken++;stations=[];ui.boxDirectoryStatus.textContent="Category changed. Reload stations.";if(active&&options.mode==="web")stop();});
   ui.boxLoadStations.addEventListener("click",async()=>{try{await loadStations();say("STATION LIST READY");}catch(e){say(e.message,true);}});
   ui.boxClipInput.addEventListener("change",()=>loadClips(ui.boxClipInput.files));
   ui.boxMark.addEventListener("click",()=>{log("Spirit box observation",options.mode.toUpperCase()+" · "+ui.boxFrequency.textContent+" · "+currentName+" · "+duration()+"ms");say("OBSERVATION MARKED");});
