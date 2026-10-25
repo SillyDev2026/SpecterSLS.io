@@ -5,7 +5,7 @@
 (function () {
   "use strict";
   const $ = id => document.getElementById(id);
-  const ui = Object.fromEntries(["boxMode","boxBand","boxDirection","boxRate","boxRateText","boxVolume","boxVolumeText","boxFrequency","boxStation","boxState","boxSweepCount","boxStart","boxMark","boxLoadStations","boxCountry","boxDirectoryStatus","boxClipInput","boxClipStatus","boxScope","boxHelp","boxRecord","boxRecordTime"].map(id => [id, $(id)]));
+  const ui = Object.fromEntries(["boxMode","boxBand","boxDirection","boxGenre","boxRate","boxRateText","boxVolume","boxVolumeText","boxFrequency","boxStation","boxState","boxSweepCount","boxStart","boxMark","boxLoadStations","boxCountry","boxDirectoryStatus","boxClipInput","boxClipStatus","boxScope","boxHelp","boxRecord","boxRecordTime"].map(id => [id, $(id)]));
   if (!ui.boxStart) return;
   const KEY = "spectersls.spiritbox.settings.v1";
   const saved = (() => { try { return JSON.parse(localStorage.getItem(KEY) || "{}"); } catch { return {}; } })();
@@ -50,7 +50,8 @@
     return options.mode==="web" ? Math.max(3000,options.rate) : options.rate;
   }
   function rateLabel(){
-    ui.boxRateText.textContent=options.rate<1000?options.rate+" ms":(options.rate/1000).toFixed(options.rate%1000?2:0)+" s";
+    const effective=duration();
+    ui.boxRateText.textContent=effective<1000?effective+" ms":(effective/1000).toFixed(effective%1000?2:0)+" s";
     ui.boxHelp.textContent=options.mode==="web"?"Real HTTPS internet audio streams. Station handoff takes time; minimum 3 seconds per station. Network and licensing restrictions may interrupt playback.":options.mode==="clips"?"Load your own recordings. The box switches between them and samples short snippets; no radio tuner is involved.":"Synthetic AM/FM-style static and filter hopping. Displayed frequencies are illustrative—not live radio reception.";
   }
   function updateInputs(){
@@ -59,7 +60,7 @@
     ui.boxVolumeText.textContent=options.volume+"%";
     rateLabel();setHeadline();
     ui.boxBand.disabled=options.mode!=="rf";
-    ui.boxCountry.disabled=options.mode!=="web";
+    ui.boxCountry.disabled=options.mode!=="web";ui.boxGenre.disabled=options.mode!=="web";
     ui.boxLoadStations.disabled=options.mode!=="web";
     ui.boxClipInput.disabled=options.mode!=="clips";
     ui.boxRecord.disabled=options.mode==="web" || !active || !recordTap || typeof MediaRecorder==="undefined";
@@ -120,11 +121,11 @@
   async function loadStations() {
     ui.boxLoadStations.disabled=true;
     ui.boxDirectoryStatus.textContent="SEARCHING HTTPS STREAMS...";
-    const country=ui.boxCountry.value;
+    const country=ui.boxCountry.value,genre=ui.boxGenre.value;
     const hosts=["https://de1.api.radio-browser.info","https://nl1.api.radio-browser.info"];
     for (const host of hosts) {
       try {
-        const url=host+"/json/stations/search?countrycode="+encodeURIComponent(country)+"&hidebroken=true&order=clickcount&reverse=true&limit=100";
+        const url=host+"/json/stations/search?countrycode="+encodeURIComponent(country)+"&hidebroken=true&order=clickcount&reverse=true&limit=100"+(genre==="all"?"":"&tag="+encodeURIComponent(genre));
         const response=await fetch(url,{headers:{Accept:"application/json"},signal:AbortSignal.timeout(8500)});
         if (!response.ok) throw Error("Directory HTTP "+response.status);
         const raw=await response.json();
@@ -257,6 +258,7 @@
   ui.boxDirection.addEventListener("change",()=>{options.direction=ui.boxDirection.value;persist();});
   ui.boxRate.addEventListener("change",updateRate);
   ui.boxVolume.addEventListener("input",()=>{options.volume=Number(ui.boxVolume.value);ui.boxVolumeText.textContent=options.volume+"%";persist();streamAudio.volume=options.volume/100;if(active&&options.mode==="rf"&&master)master.gain.setTargetAtTime(gainForVolume(),context.currentTime,.02);if(active&&options.mode==="clips"&&master)master.gain.setTargetAtTime(gainForVolume()*2,context.currentTime,.02);});
+  ui.boxGenre.addEventListener("change",()=>{stations=[];ui.boxDirectoryStatus.textContent="Category changed. Reload stations.";if(active&&options.mode==="web")stop();});
   ui.boxLoadStations.addEventListener("click",async()=>{try{await loadStations();say("STATION LIST READY");}catch(e){say(e.message,true);}});
   ui.boxClipInput.addEventListener("change",()=>loadClips(ui.boxClipInput.files));
   ui.boxMark.addEventListener("click",()=>{log("Spirit box observation",options.mode.toUpperCase()+" · "+ui.boxFrequency.textContent+" · "+currentName+" · "+duration()+"ms");say("OBSERVATION MARKED");});
