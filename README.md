@@ -14,14 +14,14 @@ A privacy-conscious, installable Android/desktop web app for **SLS-style camera 
 - Real microphone **RMS dBFS** display and **live waveform**, with optional loud-sound event tagging (no fake EVP claims).
 - Screenshot (PNG) and camera/overlay recording (WebM, mic audio only when enabled).
 - Named investigations, local journal, manual field observations, filters, JSON/CSV exports, validated JSON import and independent sessions.
-- PWA manifest, adaptive icons and app-shell service worker.
+- PWA manifest, 192px PNG and scalable SVG icons, and app-shell service worker. Browser installation support varies.
 - All captured videos/images download to the device, and are **not** secretly uploaded. Only lightweight session metadata stays in localStorage.
 
 ## Deploy to GitHub Pages
 
 1. Create a public GitHub repository (e.g. `SpecterSLS.io`).
-2. Upload **the files inside** this ZIP to the root of the main branch, including `.nojekyll`.
-3. Go to **Settings → Pages → Build and deployment → Deploy from a branch → `main` → `/ (root)` → Save**.
+2. The project files are committed directly to the `main` branch, including `.nojekyll`.
+3. On GitHub go to **Settings → Pages → Build and deployment → Deploy from a branch → `main` → `/ (root)` → Save**.
 4. Open `https://YOURNAME.github.io/SpecterSLS.io/` once Pages is live, and grant camera/microphone permissions as needed.
 
 No Node.js build, API tokens, backend, accounts, or cloud storage required.
@@ -66,7 +66,7 @@ All processing happens locally in the browser except downloads of the JavaScript
 - `styles.css` — mobile/desktop layout, HUD and panels
 - `app.js` — webcam, MediaPipe, microphone, recording, local sessions
 - `sw.js` — offline app-shell cache
-- `manifest.webmanifest`, `icon-*.png`, `icon.svg` — installation assets
+- `manifest.webmanifest`, `icon-192.png`, `icon.svg` — PWA icons and installation assets
 - `.nojekyll` — GitHub Pages compatible
 
 ## License
