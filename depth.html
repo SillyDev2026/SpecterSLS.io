@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090f17"><title>SpecterSLS · Experimental AR Depth</title>
+<link rel="icon" href="./icon.svg"><link rel="stylesheet" href="./styles.css"><link rel="manifest" href="./manifest.webmanifest">
+<style>
+.depth-app{max-width:980px;margin:auto;padding:22px 18px 40px}.depth-nav{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:28px}.depth-nav a{color:#b1ff6b;font:12px var(--mono);text-decoration:none}.depth-head h1{font-size:clamp(26px,5vw,44px);letter-spacing:-1px;margin:12px 0}.depth-head p{color:#99b3ac;line-height:1.7;max-width:660px;font-size:14px}.depth-card{background:#111d24;border:1px solid #365148;padding:22px;margin-top:22px}.depth-status{font:12px var(--mono);letter-spacing:.4px;color:#a7ec9b;line-height:1.6}.depth-start{display:block;min-height:54px;border:0;background:#b1ff6b;color:#13200e;padding:0 30px;font:800 14px var(--mono);margin-top:20px;width:100%}.depth-start:disabled{background:#34413b;color:#a1b1ab}.depth-instructions{margin-top:19px;line-height:1.8;color:#9faea9;font-size:12px}.depth-instructions strong{color:#d9f0d8}.depth-explainer{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px}.depth-mini{border:1px solid #294237;padding:15px;background:#111e1d}.depth-mini strong{display:block;font:11px var(--mono);color:#b1ff6b;margin-bottom:11px}.depth-mini span{font-size:11px;color:#9baca9;line-height:1.6}.depth-hint{margin-top:25px;border-left:2px solid #b1ff6b;padding:13px 16px;background:#172521;font:12px/1.7 var(--mono);color:#c2d4cb}
+#xrOverlay{position:fixed;inset:0;pointer-events:none;display:none;color:#b1ff6b}#xrOverlay.active{display:block}.xr-controls{pointer-events:auto;position:absolute;top:max(20px,env(safe-area-inset-top));left:14px;right:14px;display:flex;align-items:center;justify-content:space-between;gap:12px}.xr-panel{background:#06150edc;border:1px solid #87dc65;padding:12px;font:12px var(--mono);max-width:260px}.xr-panel strong,.xr-panel small{display:block}.xr-panel small{font:10px/1.6 var(--mono);color:#c5dfbd;margin-top:5px}#xrExit{min-height:46px;border:1px solid #b1ff6b;background:#0a271bdc;color:#d0ffc3;font:12px var(--mono);padding:0 14px}
+#xrTip{position:absolute;bottom:max(22px,env(safe-area-inset-bottom));left:14px;right:14px;background:#0b1e16bf;border:1px solid #3d7043;padding:12px;text-align:center;font:11px/1.5 var(--mono)}
+@media(max-width:650px){.depth-explainer{grid-template-columns:1fr}.depth-app{padding:18px 12px 30px}}
+</style>
+<script src="./depth.js" defer></script>
+</head>
+<body>
+<main class="depth-app">
+<nav class="depth-nav"><a href="./">← BACK TO SPECTERSLS SCANNER</a><span class="eyebrow">EXPERIMENTAL FEATURE · V2.1</span></nav>
+<header class="depth-head">
+<span class="eyebrow">WEBXR / DEPTH-SENSING MODULE</span>
+<h1>True depth-dot scanning <span style="color:var(--lime)">when supported.</span></h1>
+<p>This optional view requests <strong>estimated distances from your browser's AR depth provider</strong> and draws a field of green dots over the real world. Some Android browsers can calculate depth using camera movement without a LiDAR sensor.</p>
+</header>
+<section class="depth-card">
+<div class="eyebrow">DEVICE READINESS</div>
+<p class="depth-status" id="xrStatus" role="status">CHECKING WEBXR SUPPORT…</p>
+<button id="xrStart" class="depth-start" type="button" disabled>CHECKING YOUR DEVICE…</button>
+<p class="depth-instructions">The browser will request camera/spatial-tracking permissions. If your browser reports no AR depth support, use <strong>Dot Cloud</strong> on the <a href="./" style="color:var(--lime)">main scanner</a> instead. WebXR camera images are managed by the browser during AR.</p>
+</section>
+<div class="depth-explainer">
+<div class="depth-mini"><strong>✓ IF SUPPORTED</strong><span>Distances in meters from the AR depth API, drawn as dots on visible surfaces.</span></div>
+<div class="depth-mini"><strong>◌ NO HARDWARE LiDAR</strong><span>ARCore may estimate depth from movement. Results are noisy, incomplete and device-dependent.</span></div>
+<div class="depth-mini"><strong>✳ LOCAL / NO SERVER</strong><span>Depth sampling and rendering happen in your browser. This app does not upload scan data.</span></div>
+</div>
+<div class="depth-hint">This feature measures approximate scene geometry, not spirits. Green dots, human-shaped outlines, or unexplained patterns are not evidence of paranormal activity.</div>
+<canvas id="xrCanvas" hidden aria-hidden="true"></canvas>
+</main>
+<div id="xrOverlay" aria-live="off">
+<div class="xr-controls"><div class="xr-panel"><strong>◉ REAL AR DEPTH</strong><small id="xrMetrics">WAITING FOR DEPTH MAP</small></div><button type="button" id="xrExit">EXIT AR</button></div>
+<div id="xrTip">Slowly pan across the scene to help the AR system estimate distances.</div>
+</div>
+</body></html>
