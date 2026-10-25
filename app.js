@@ -223,12 +223,22 @@
   }
   function drawDotCloud(now){
     if(!dotsFrozen&&now-lastDotUpdate>({battery:250,balanced:150,fast:90,turbo:66,ultra:50})[settings.speed])sampleDotCloud(now);
-    const scale=Math.min(2,canvas.width/800);
+    // Cap dots drawn per frame and batch by color: no per-point fillStyle/text parsing.
+    // The sampler retains every measured optical point for export.
+    const cap=({battery:1200,balanced:2400,fast:3200,turbo:4500,ultra:5000})[settings.speed]||2400;
+    const stride=Math.max(1,Math.ceil(dotParticles.length/cap));
+    const scale=Math.min(2,canvas.width/800),base=Math.max(1,1.65*scale);
     ctx.save();
-    for(const dot of dotParticles){
-      ctx.fillStyle=dot.m?"rgba(110,243,255,.94)":`rgba(175,255,106,${(.44+dot.e*.52).toFixed(2)})`;
-      const radius=(dot.m?2.6:dot.e>.43?1.9:1.15)*scale;
-      ctx.fillRect(dot.x-radius/2,dot.y-radius/2,radius,radius);
+    ctx.fillStyle="rgba(175,255,106,.85)";
+    for(let i=0;i<dotParticles.length;i+=stride){
+      const d=dotParticles[i];if(d.m)continue;
+      const size=base*(d.e>.43?1.2:.8);
+      ctx.fillRect(d.x-size/2,d.y-size/2,size,size);
+    }
+    ctx.fillStyle="rgba(110,243,255,.95)";
+    for(let i=0;i<dotParticles.length;i+=stride){
+      const d=dotParticles[i];if(!d.m)continue;
+      const size=base*1.55;ctx.fillRect(d.x-size/2,d.y-size/2,size,size);
     }
     ctx.restore();
   }
