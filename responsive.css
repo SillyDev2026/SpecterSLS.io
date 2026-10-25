@@ -1,0 +1,64 @@
+/* SpecterSLS v2.4 Fluid UI: viewport- and parent-relative positioning.
+   Thin borders use device pixels for clarity; major widths/heights are fluid. */
+:root{--shell-gutter:clamp(.7rem,2.2vw,2.4rem);--field-gap:clamp(.65rem,1.35vw,1.8rem);--touch-target:clamp(2.7rem,7dvh,3.6rem)}
+html,body{width:100%;max-width:100%;overflow-x:clip}
+.app-shell{max-width:none;width:100%;padding-inline:var(--shell-gutter);margin-inline:auto}
+.app-grid{display:grid;grid-template-columns:minmax(0,64%) minmax(0,36%);gap:0;width:100%;align-items:start}
+.app-grid>.work{min-width:0;width:100%;padding-right:var(--field-gap)}
+.app-grid>.sidebar{min-width:0;width:100%;padding-left:var(--field-gap)}
+.app-grid>.sidebar>.console-panel{width:100%;max-width:100%}
+.header{height:clamp(4rem,9dvh,5.8rem);min-width:0}
+.stage{width:100%;height:clamp(22rem,61dvh,60rem);aspect-ratio:auto}
+#cameraCanvas,#cameraVideo{max-width:100%}
+.camera-dock{width:100%;min-width:0}
+.camera-dock>button{min-width:0}
+.panel-content,.settings-content,.box-body{max-width:100%}
+.panel-content select,.settings-content select,.settings-content input,.box-body select,.box-body input{max-width:100%}
+.stat-grid{width:100%;grid-template-columns:repeat(4,minmax(0,1fr))}
+.stat{min-width:0}
+.stat-main{font-size:clamp(1.3rem,2.4vw,2.15rem)}
+.mobile-nav{width:100%}
+.quick-preset,.depth-status-strip{width:100%;min-width:0}
+.quick-preset .preset-options{flex-wrap:wrap}
+.quick-preset button{flex:1 1 auto;min-width:0}
+.panel-title,.panel-tag{min-width:0}
+.box-display,.depth-status-strip,.timeline,.wave-canvas{max-width:100%}
+@media(max-width:900px){
+  .app-grid{grid-template-columns:minmax(0,62%) minmax(0,38%)}
+  .app-grid>.work{padding-right:var(--field-gap)}
+  .app-grid>.sidebar{padding-left:var(--field-gap)}
+  .camera-dock{flex-wrap:wrap}
+}
+@media(max-width:780px){
+  .app-shell{padding-inline:clamp(.55rem,3vw,1.1rem)}
+  .app-grid{display:block;width:100%}
+  .app-grid>.work,.app-grid>.sidebar{width:100%;padding:0}
+  .stage{height:clamp(17rem,61dvh,54rem);max-height:71dvh}
+  .mobile-nav{display:flex;gap:2%;padding-block:clamp(.55rem,2dvh,.9rem)}
+  .mobile-nav button{flex:1 1 0;min-width:0;min-height:var(--touch-target)}
+  .stat-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .box-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .sidebar{margin-top:0}
+}
+@media(max-width:480px){
+  .app-shell{width:100%;padding-inline:3%}
+  .header{height:clamp(3.65rem,8dvh,4.75rem)}
+  .stage{height:clamp(15rem,61dvh,42rem);max-height:72dvh}
+  .camera-dock{display:grid;grid-template-columns:minmax(0,2.2fr) repeat(3,minmax(0,1fr)) repeat(3,minmax(0,.58fr));gap:1.1%}
+  .camera-dock>button{width:100%;min-width:0;min-height:clamp(2.5rem,6.5dvh,3.5rem);padding-inline:0}
+  .camera-dock small{font-size:clamp(.51rem,1.85vw,.67rem)}
+  .quick-preset .preset-options{display:flex;flex-wrap:wrap;gap:1%}
+  .quick-preset .preset{font-size:clamp(.55rem,2.2vw,.75rem);min-height:2.5rem}
+  .stat-main{font-size:clamp(1.25rem,7vw,1.85rem)}
+  .box-row{grid-template-columns:minmax(0,1fr)}
+  .box-btns{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .panel-title{font-size:clamp(.62rem,2.55vw,.8rem)}
+  .box-freq{font-size:clamp(1.45rem,8.6vw,2.3rem)}
+  .depth-status-strip{overflow-wrap:anywhere}
+  .privacy-foot,.facts{overflow-wrap:anywhere}
+}
+@media(max-width:345px){
+  .camera-dock{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .camera-dock>.action-start{grid-column:span 4}
+  .stage{height:55dvh}
+}
