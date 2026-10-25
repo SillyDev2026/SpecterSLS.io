@@ -168,8 +168,7 @@
     const maxDpr=({battery:1,balanced:1.15,fast:1.25,turbo:1.45,ultra:1.5})[settings.speed]||1.15;
     const dpr=Math.min(maxDpr,window.devicePixelRatio||1);
     const w=Math.max(1,Math.round(ui.stage.clientWidth*dpr)),h=Math.max(1,Math.round(ui.stage.clientHeight*dpr));
-    if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-    ui.displaySize.textContent=`${canvas.width} × ${canvas.height}`;
+    if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;ui.displaySize.textContent=`${w} × ${h}`;dotEngine?.invalidate();}
   }
   function coverParams(){
     const sw=video.videoWidth||1,sh=video.videoHeight||1,cw=canvas.width,ch=canvas.height;
@@ -319,7 +318,8 @@
       scannerStatus("SCANNING");
       scanning=true;sessionStart=Date.now();
       ui.idleArt.hidden=true;
-      await ensureModel();
+      if(settings.skeleton)await ensureModel();
+      else{ui.diagModel.textContent="SKIPPED FOR DOT FPS";ui.engineLabel.textContent="OPTICAL SCANNER ONLY";}
       hideLoading();renderButtons();resizeCanvas();
       requestAnimationFrame(renderFrame);
       if(settings.wake)acquireWake();
@@ -523,7 +523,7 @@
     ui.dotPalette.addEventListener("change",()=>{settings.dotPalette=ui.dotPalette.value;dotEngine?.invalidate();persistSettings();});
     ui.dotView.addEventListener("change",()=>{settings.dotView=ui.dotView.value;dotEngine?.invalidate();persistSettings();});
     ui.dotOverlay.addEventListener("change",()=>{settings.dotOverlay=ui.dotOverlay.checked;persistSettings();});
-    ui.skeletonCheck.addEventListener("change",()=>{settings.skeleton=ui.skeletonCheck.checked;persistSettings();});
+    ui.skeletonCheck.addEventListener("change",()=>{settings.skeleton=ui.skeletonCheck.checked;persistSettings();if(scanning&&settings.skeleton&&!landmarker)ensureModel().finally(hideLoading);});
     ui.trailCheck.addEventListener("change",()=>{settings.trails=ui.trailCheck.checked;trails=[];persistSettings();});
     ui.wakeCheck.addEventListener("change",()=>{
       settings.wake=ui.wakeCheck.checked;persistSettings();if(settings.wake)acquireWake();else releaseWake();
