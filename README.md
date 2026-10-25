@@ -1,4 +1,51 @@
-# SpecterSLS.io · v2.3 — Spirit Box Studio + Higher-Refresh Scanner
+# SpecterSLS.io · v2.4 — SLS Point Field, AR Depth, Radio Repairs and Fluid UI
+
+**GitHub Pages (when enabled):** https://sillydev2026.github.io/SpecterSLS.io/
+
+## New in v2.4
+
+### SLS-inspired camera dots (no LiDAR hardware required)
+- Three optical display styles: Surface Detail, Outlines & Motion, Full Dot Grid.
+- Three colors: Kinect/SLS-style green, cyan-blue and thermal-style.
+- Five dot density levels and five sensitivity levels.
+- Cached dot bitmap improves canvas-rendering performance between camera samples.
+- Optional faint video backdrop behind the dots; animated sweep line is a visual effect.
+- Exported optical points are normalized **2D pixel positions**, not 3D distance measurements.
+- Disable skeleton overlays to skip pose model loading during optical-only scanning.
+
+### Real AR depth improvements (experimental)
+- Choose sample resolution, depth range (3, 6, 12 meters) and depth palette.
+- Uses actual browser-provided WebXR depth-meter measurements when available.
+- Adapts detail when render work is expensive. Browser and device support are not guaranteed.
+- ARCore may estimate depth from the moving camera without dedicated LiDAR hardware.
+
+### Spirit Box fixes
+- Isolated Web Audio gain paths prevent synthetic RF static from leaking into user-loaded audio clips.
+- Internet stream failures auto-skip; station-directory requests time out and outdated requests are ignored.
+- For online radio, first tap LOAD STATIONS and then START SWEEP, preserving a direct audio user gesture on Android.
+- Radio station switching needs at least 3 seconds and network buffering may take longer.
+- Fast synthetic AM/FM-style frequency values are simulated, **not real terrestrial radio reception**.
+- Synthesized and user-provided clips can be recorded. Arbitrary remote streams are not captured.
+
+### Screen-relative scaling
+- Main content uses fluid 64%/36% layout ratios with responsive layout, screen-height-relative camera viewport and container-relative controls.
+- Small phones use stacked pages, fluid camera buttons, viewport-based sizes and viewport-safe spacing.
+- CSS borders remain thin pixels; substantial positions and sizes are responsive percentages or viewport-relative units.
+- Updated the PWA cache to include the new dot engine and responsive styles.
+
+## On-phone verification
+1. Open the GitHub Pages site in Chrome (HTTPS).
+2. Select DOT CLOUD and Full Dot Grid, then move the phone around to inspect surfaces.
+3. Try green/cyan palette and adjust dot density.
+4. Verify render FPS separately from model inference FPS (neither is guaranteed).
+5. In Investigation > Spirit Box, test synthesized RF and local clips independently.
+6. For live streams: Real Internet Radio > Load Stations > Start Sweep.
+7. Try AR DEPTH (BETA) only if Chrome exposes WebXR Depth Sensing.
+
+The SLS visuals and sound-sweep features cannot detect ghosts or establish paranormal activity.
+
+---
+
 
 **Live site (when GitHub Pages is enabled):** https://sillydev2026.github.io/SpecterSLS.io/
 
