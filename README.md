@@ -1,3 +1,29 @@
+# SpecterSLS.io · v2.1 (Optical Dots + Experimental AR Depth)
+
+**Live site:** https://sillydev2026.github.io/SpecterSLS.io/
+
+## New in v2.1
+
+- **Optical DOT CLOUD**: green dots derived from live camera brightness gradients and frame-to-frame motion; dot density and sensitivity are configurable. This does **not** provide measured depth or LiDAR.
+- **AR DEPTH (BETA)**: `depth.html` uses the WebXR Depth Sensing API for approximate real-world distances when supported. It requires HTTPS, Chrome/Android with compatible ARCore and an active immersive AR depth session. Some devices and browsers will reject the feature.
+- **Direct fallback**: unsupported devices can still use the 2D optical dot view.
+- **Local processing**: the page does not upload camera video or depth maps. MediaPipe assets are fetched from external hosted model resources when used.
+- **Mobile-ready**: responsive UI for Motorola Razr Ultra and other Android phones.
+
+**Important:** No mode detects spirits or proves paranormal activity. Optical dots reflect camera appearance; AR depth estimates physical scene geometry and may be noisy or unavailable.
+
+## Deploy
+
+This project is committed to `main`. In the repository go to **Settings → Pages → Deploy from a branch → main → /(root)**.
+
+## Technical references
+
+- https://developers.google.com/ar/develop/webxr/arcore-comparison
+- https://www.w3.org/TR/webxr-depth-sensing-1/
+- https://developer.mozilla.org/en-US/docs/Web/API/XRFrame/getDepthInformation
+
+---
+
 # SpecterSLS.io — Investigation Studio v2.0.0
 
 A privacy-conscious, installable Android/desktop web app for **SLS-style camera body-pose visualization** and local field journaling.
