@@ -1,7 +1,7 @@
 (function specterApp() {
   "use strict";
   const $ = id => document.getElementById(id);
-  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","dotCount","opticalPointLabel"];
+  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","dotCount","opticalPointLabel","dotActions","freezeDotBtn","exportDotBtn"];
   const ui = Object.fromEntries(ids.map(id => [id,$(id)]));
   const canvas = ui.cameraCanvas, video = ui.cameraVideo, ctx = canvas.getContext("2d",{alpha:false});
   const waveCtx = ui.waveCanvas.getContext("2d");
@@ -134,7 +134,7 @@
   let micStream=null,audioContext=null,analyser=null,audioBuffer=null,audioRaf=0,peakSince=0,lastPeak=0,installPrompt=null;
   const dotSampler=document.createElement("canvas");
   const dotContext=dotSampler.getContext("2d",{willReadFrequently:true});
-  let prevDotLight=null,dotParticles=[],lastDotUpdate=0;
+  let prevDotLight=null,dotParticles=[],lastDotUpdate=0,dotsFrozen=false;
   const speedInterval=()=>({battery:170,balanced:100,fast:66})[settings.speed]||100;
   function scannerStatus(mode){
     ui.stateLabel.textContent=mode;
@@ -216,7 +216,7 @@
     lastDotUpdate=now;
   }
   function drawDotCloud(now){
-    if(now-lastDotUpdate>({battery:250,balanced:160,fast:105})[settings.speed])sampleDotCloud(now);
+    if(!dotsFrozen&&now-lastDotUpdate>({battery:250,balanced:160,fast:105})[settings.speed])sampleDotCloud(now);
     const scale=Math.min(2,canvas.width/800);
     ctx.save();
     for(const dot of dotParticles){
@@ -458,6 +458,8 @@
     if(!allowedModes.includes(mode))return;
     settings.mode=mode;ui.hudMode.textContent=({sls:"SLS GREEN",night:"NIGHT VISION",mono:"MONO",normal:"NATURAL",dots:"OPTICAL DOT CLOUD"})[mode];
     ui.opticalPointLabel.textContent=mode==="dots"?"LIVE CAMERA PIXEL DOTS":"OPTICAL DOT FIELD";
+    ui.dotActions.hidden=mode!=="dots";
+    if(mode!=="dots"){dotsFrozen=false;ui.freezeDotBtn.textContent="❄ FREEZE DOTS";}
     if(mode!=="dots")ui.dotCount.textContent="0";
     for(const b of document.querySelectorAll("[data-mode]")){
       b.classList.toggle("active",b.dataset.mode===mode);
@@ -507,6 +509,23 @@
     });
     ui.thresholdRange.addEventListener("input",()=>{
       settings.visibility=Number(ui.thresholdRange.value);ui.thresholdLabel.textContent=`${settings.visibility}%`;persistSettings();
+    });
+    ui.freezeDotBtn.addEventListener("click",()=>{
+      if(!scanning){toast("Start the camera before freezing dots.",true);return;}
+      dotsFrozen=!dotsFrozen;ui.freezeDotBtn.textContent=dotsFrozen?"▶ RESUME DOTS":"❄ FREEZE DOTS";
+      toast(dotsFrozen?"Optical point positions frozen.":"Optical point field resumed.");
+    });
+    ui.exportDotBtn.addEventListener("click",()=>{
+      if(!scanning||!dotParticles.length){toast("Scan with Dot Cloud first.",true);return;}
+      const normalized=dotParticles.map((p,i)=>({n:i,x:Number((p.x/canvas.width).toFixed(5)),
+        y:Number((p.y/canvas.height).toFixed(5)),edgeStrength:Number(p.e.toFixed(3)),motion:Boolean(p.m)}));
+      const out={format:"SpecterSLS-optical-points-v1",capturedAt:new Date().toISOString(),
+        source:"2D camera brightness gradients and frame change; NOT 3D or LiDAR",
+        width:canvas.width,height:canvas.height,points:normalized};
+      const name=`SpecterSLS_optical_points_${timestamp()}.json`;
+      saveAs(new Blob([JSON.stringify(out)],{type:"application/json"}),name);
+      appendEvent("capture","Optical dot map saved",`${normalized.length} 2D camera-derived dots exported to ${name}`);
+      toast("2D optical dot map downloaded.");
     });
     ui.speedSelect.addEventListener("change",()=>{settings.speed=ui.speedSelect.value;persistSettings();});
     ui.dotDensity.addEventListener("input",()=>{settings.dotDensity=Number(ui.dotDensity.value);
