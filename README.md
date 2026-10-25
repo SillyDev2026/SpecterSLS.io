@@ -7,7 +7,7 @@
 ### Spirit Box
 - **Synthetic RF sweep**: Web Audio static/filter synthesis with an AM/FM-style readout. Adjustable hop intervals **50 ms–30 seconds**, forward/reverse/random tuning, volume control and audio spectrum visualization. Displayed RF numbers **do not represent received radio frequencies**.
 - **Local clip bank**: Load audio files directly from your phone and hop between snippets at your chosen interval. Imported files remain in your browser and are never uploaded.
-- **Real Internet Radio**: On demand, retrieve HTTPS streaming stations from the public [Radio Browser](https://www.radio-browser.info/) directory for the US, UK, Canada, Australia or Germany, then switch stations. Minimum practical interval is **3 seconds**; station switching can be delayed by network buffering, and some stations may reject playback or be unavailable.
+- **Real Internet Radio**: On demand, retrieve HTTPS streaming stations from the public [Radio Browser](https://www.radio-browser.info/) directory for the US, UK, Canada, Australia or Germany, with optional **talk** or **news** filtering, then switch stations. Minimum practical interval is **3 seconds**; station switching can be delayed by network buffering, and some stations may reject playback or be unavailable.
 - **Evidence markers**: Manually mark the currently displayed frequency/stream and sweep interval in your investigation log.
 - **Audio recording**: Export browser-generated static or your local clip-bank output to WebM/Opus (or supported MP4 audio). Due to cross-origin web audio protections, **internet streams cannot be recorded by this tool**.
 - **Safe defaults**: Starts only with an explicit tap. Stops when the tab goes into the background and does not automatically upload audio or recordings.
