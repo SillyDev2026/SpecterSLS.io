@@ -1,4 +1,45 @@
-# SpecterSLS.io · v2.4 — SLS Point Field, AR Depth, Radio Repairs and Fluid UI
+# SpecterSLS.io · v2.5 — Figure Scan / Human-Shape Visualization
+
+**Live website (if GitHub Pages enabled):** https://sillydev2026.github.io/SpecterSLS.io/
+
+## New in v2.5
+
+### See the actual camera-detected figure (not a fabricated ghost)
+- **FIGURE SCAN mode** in the scanner profile selector shows a real camera feed with human-body segmentation overlays when MediaPipe supplies a mask.
+- Four visualization modes: **Body Outline**, **Filled Silhouette**, **X-Ray Style**, and **Bounding Boxes**.
+- A **LIVE CAMERA BODY CROP** preview uses only actual camera pixels of the detected shape. This is a crop/brightness enhancement, not AI image synthesis.
+- Three evidence indicators: currently tracked shapes, average visible landmark score, and whether the real pixel mask is available.
+- Body overlay cutoff (35–85%) lets you reduce stray segmentation pixels.
+- **Stable Figure Tracking** waits approximately 1.5 seconds of a consistent body-like pose before writing a pose event.
+- Smoothed joint positions reduce jitter between ML inference frames, and weak central-joint detections are ignored.
+- Model loads GPU-first and falls back to CPU. If person segmentation is unsupported, pose landmarks/bounding boxes remain usable.
+
+**Important:** Nothing in a phone camera or AI pose model can reveal the visual appearance of an invisible or supernatural entity. This visualization only depicts person-like shapes that are supported by camera pixels. False positives can occur with furniture, patterned walls, shadows, mirrors and screens. The percentage in Figure Scan is **landmark visibility**, NOT probability that a ghost is present.
+
+### Reliability fixes
+- Camera start/stop uses a generation token to prevent an interrupted camera/model load from restarting video after Stop.
+- Closing and reusing MediaPipe segmentation masks avoids prolonged memory use.
+- Cached segmentation matte avoids rebuilding the image mask on every display refresh; the cached matte is preserved until the next inference.
+- Switching mobile tabs no longer resets the camera canvas during recording.
+- PWA cache version upgraded to v2.5 and includes the new figure scripts/styles.
+- Added automated smoke tests with a GitHub Actions workflow. Run locally with Node 22: `node tests/smoke.cjs`.
+
+### How to use Figure Scan
+1. Open the GitHub Pages site over HTTPS in Chrome.
+2. Select **FIGURE SCAN** in the live camera profiles and press **START SCANNER**.
+3. Permit the camera; allow the MediaPipe pose model to load.
+4. In **Settings**, select Outline, Silhouette, X-Ray, or Bounding Boxes, adjust Mask Confidence and enable Stable Figure Tracking.
+5. Watch the status indicators and the live **camera crop**. If it says **LANDMARKS ONLY**, your browser/model cannot supply a segmentation mask.
+6. Take a screenshot/video if you want to review any physical shape. Do not infer paranormal presence from a green outline.
+
+### Device caveats
+- The Motorola Razr Ultra 2026 does **not** contain dedicated LiDAR hardware. The dot mode is optical, and the experimental AR Depth view only uses WebXR estimated depth when available.
+- Actual frame rate depends on the phone's camera, thermal behavior, GPU, model and browser.
+- Spirit Box modes remain synthetic RF static, local audio-clip hopping, or real internet streams (no direct analog radio tuner access).
+- GitHub Pages hosting and on-device camera/AR/radio checks must be confirmed after deployment.
+
+---
+
 
 **GitHub Pages (when enabled):** https://sillydev2026.github.io/SpecterSLS.io/
 
