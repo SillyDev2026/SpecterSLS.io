@@ -41,7 +41,11 @@
 <button type="button" id="freezeDotBtn">❄ FREEZE DOTS</button><button type="button" id="exportDotBtn">↓ EXPORT OPTICAL DOT MAP</button><span>2D pixel positions · no measured depth</span>
 </div><section class="figure-details" id="figureDetails" aria-label="Person-shape visualization status" hidden>
   <div class="figure-detail-head"><span>◉ PERSON-SHAPE VISUALIZER</span><strong id="figureStatus">WAITING FOR CAMERA</strong></div>
-  <div class="figure-detail-grid">
+  <div class="figure-preview">
+  <canvas id="figurePreview" width="256" height="176" aria-label="Camera crop around detected human-like shape"></canvas>
+  <div><strong id="figurePreviewLabel">NO VISIBLE SUBJECT</strong><small>Actual camera crop. No generated or simulated person.</small></div>
+</div>
+<div class="figure-detail-grid">
     <div><span>VISIBLE SHAPES</span><strong id="figureShapeCount">0</strong></div>
     <div><span>LANDMARK VISIBILITY</span><strong id="figureConfidence">0%</strong></div>
     <div><span>BODY MASK</span><strong id="figureMaskStatus">UNAVAILABLE</strong></div>
