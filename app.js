@@ -148,7 +148,7 @@
   // Higher camera/overlay FPS is independent of slower, synchronous AI inference.
   // Target rates are upper bounds, not a claim of measured device performance.
   const speedInterval=()=>({battery:170,balanced:100,fast:50,turbo:33,ultra:28})[settings.speed]||100;
-  let renderFrames=0,renderWindowAt=0,lastHudTime=0,averageInferenceMs=0;
+  let renderFrames=0,renderWindowAt=0,lastHudTime=0,lastFigureUiTime=0,averageInferenceMs=0;
   let dynamicModelInterval=0;
   function scannerStatus(mode){
     ui.stateLabel.textContent=mode;
@@ -248,7 +248,7 @@
       currentPoses=[];tracked=[];figureEngine?.reset();
       ui.poseMetric.textContent="0";ui.poseNotice.hidden=true;
     }
-    if(settings.mode==="figure"&&now-lastHudTime>250){
+    if(settings.mode==="figure"&&now-lastFigureUiTime>250){
       const present=figureEngine?.preview(ui.figurePreview,front);
       ui.figurePreviewLabel.textContent=present?"LIVE CAMERA BODY CROP":"NO VISIBLE SUBJECT";
       const fig=figureEngine?.details();
@@ -256,6 +256,7 @@
       ui.figureConfidence.textContent=fig?.poseCount?Math.round((fig.confidence||0)*100)+"%":"—";
       ui.figureMaskStatus.textContent=fig?.hasMasks?"REAL PIXEL MASK":fig?.poseCount?"LANDMARKS ONLY":"NO FIGURE";
       ui.figureStatus.textContent=fig?.poseCount?"BODY PATTERN DETECTED":"NO PERSON SHAPE";
+      lastFigureUiTime=now;
     }
     if(now-lastHudTime>150){
       ui.hudClock.textContent=fmtTime(Date.now()-sessionStart,true);
@@ -357,8 +358,11 @@
         return false;
       }
     })();
-    try{return await modelLoadPromise;}
-    finally{modelLoadPromise=null;}
+    try{
+      const loaded=await modelLoadPromise;
+      if(loaded&&landmarker&&maskOptionEnabled!==(settings.mode==="figure"))await syncFigureOptions();
+      return loaded;
+    }finally{modelLoadPromise=null;}
   }
   async function syncFigureOptions(){
     if(!landmarker||maskSyncTask)return maskSyncTask;
