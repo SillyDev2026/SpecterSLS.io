@@ -1,6 +1,18 @@
-# SpecterSLS.io · v2.5 — Figure Scan / Human-Shape Visualization
+# SpecterSLS.io · v2.5.1 — Detection Stability
 
 **Live website (if GitHub Pages enabled):** https://sillydev2026.github.io/SpecterSLS.io/
+
+## New in v2.5.1
+
+- Figure outlines, masks, counts, and skeletons now use the same accepted detections. Rejected bodies cannot appear through the raw segmentation path.
+- Visible upper bodies can remain tracked with obscured hips. Invalid coordinates, missing visibility, and collapsed patterns are rejected; this is a heuristic filter, not a guarantee against false positives.
+- Small confidence dips retain existing tracks, while new tracks require stronger evidence. Time-based smoothing reduces jitter and responds faster to larger movements. Body colors and labels follow the track ID.
+- Logging requires consecutive accepted observations over 1.5 seconds (stable tracking) or 0.9 seconds (unchecked), with at least four observations and no sampling gap longer than 450 ms. Misses reset this timer. Expired tracks cannot inherit old confirmation time.
+- Overlays and the body crop expire after 750 ms without a fresh result. Camera changes and Stop immediately clear detections. A camera switch finishing after Stop releases its stream.
+- When skeletons are disabled outside Figure Scan, pose inference stops instead of consuming CPU/GPU in the background. Camera switching retains the requested camera resolution/frame-rate targets.
+- The updated offline cache delivers these fixes to installed copies. Saved settings and investigations keep their existing storage keys.
+
+Validation: `node tests/smoke.cjs` and `node --test tests/detection.cjs` run without npm dependencies and are included in CI. The regression fixtures test application behavior; they do not measure real-world model accuracy or phone FPS. Real camera testing in different lighting, distances, and orientations is still needed. The underlying MediaPipe model is unchanged.
 
 ## New in v2.5
 

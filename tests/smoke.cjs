@@ -36,7 +36,7 @@ check("Figure Scan controls and mask processing are present",()=>{
   assert(app.includes("scanGeneration"));
 });
 check("Updated cache contains figure and scene engines",()=>{
-  assert(worker.includes("spectersls-v2.5-shell"));
+  assert(worker.includes("spectersls-v2.5.1-shell"));
   for(const filename of ["figureengine.js","figure.css","responsive.css","dotengine.js","spiritbox.js"])
     assert(worker.includes(filename),filename+" missing from cache");
 });

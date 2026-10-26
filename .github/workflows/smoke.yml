@@ -18,4 +18,6 @@ jobs:
         with:
           node-version: '22'
       - name: Validate scripts, UI and model integration
-        run: node tests/smoke.cjs
+        run: |
+          node tests/smoke.cjs
+          node --test tests/detection.cjs
