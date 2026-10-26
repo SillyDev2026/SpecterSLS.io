@@ -1,7 +1,7 @@
 (function specterApp() {
   "use strict";
   const $ = id => document.getElementById(id);
-  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","figureView","figureCutoff","figureCutoffLabel","figureStability","figureDetails","figureStatus","figureShapeCount","figureConfidence","figureMaskStatus","renderFpsMetric","dotPalette","dotView","dotOverlay","dotCount","opticalPointLabel","dotActions","freezeDotBtn","exportDotBtn"];
+  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","figureView","figureCutoff","figureCutoffLabel","figureStability","figureDetails","figureStatus","figureShapeCount","figureConfidence","figureMaskStatus","figurePreview","figurePreviewLabel","renderFpsMetric","dotPalette","dotView","dotOverlay","dotCount","opticalPointLabel","dotActions","freezeDotBtn","exportDotBtn"];
   const ui = Object.fromEntries(ids.map(id => [id,$(id)]));
   const canvas = ui.cameraCanvas, video = ui.cameraVideo, ctx = canvas.getContext("2d",{alpha:false});
   const waveCtx = ui.waveCanvas.getContext("2d");
@@ -249,6 +249,8 @@
       ui.poseMetric.textContent="0";ui.poseNotice.hidden=true;
     }
     if(settings.mode==="figure"&&now-lastHudTime>250){
+      const present=figureEngine?.preview(ui.figurePreview,front);
+      ui.figurePreviewLabel.textContent=present?"LIVE CAMERA BODY CROP":"NO VISIBLE SUBJECT";
       const fig=figureEngine?.details();
       ui.figureShapeCount.textContent=String(fig?.poseCount||0);
       ui.figureConfidence.textContent=fig?.poseCount?Math.round((fig.confidence||0)*100)+"%":"—";
@@ -328,12 +330,21 @@
     try{
       const vision=await import(TASKS_URL);
       const fileset=await vision.FilesetResolver.forVisionTasks(WASM_URL);
-      const create=delegate=>vision.PoseLandmarker.createFromOptions(fileset,{baseOptions:{modelAssetPath:MODEL_URL,delegate},runningMode:"VIDEO",numPoses:3,
+      const create=(delegate,masks)=>vision.PoseLandmarker.createFromOptions(fileset,{baseOptions:{modelAssetPath:MODEL_URL,delegate},runningMode:"VIDEO",numPoses:3,
         minPoseDetectionConfidence:.55,minPosePresenceConfidence:.55,minTrackingConfidence:.58,
-        outputSegmentationMasks:settings.mode==="figure"});
-      try{landmarker=await create("GPU");}catch{landmarker=await create("CPU");}
-      maskOptionEnabled=settings.mode==="figure";
+        outputSegmentationMasks:masks});
+      const wantMask=settings.mode==="figure";
+      try{landmarker=await create("GPU",wantMask);maskOptionEnabled=wantMask;}
+      catch{
+        try{landmarker=await create("CPU",wantMask);maskOptionEnabled=wantMask;}
+        catch{
+          // Segmentation may be unavailable even when regular pose tracking works.
+          try{landmarker=await create("GPU",false);maskOptionEnabled=false;}
+          catch{landmarker=await create("CPU",false);maskOptionEnabled=false;}
+        }
+      }
       ui.diagModel.textContent="READY";
+      if(settings.mode==="figure"&&!maskOptionEnabled)ui.figureStatus.textContent="LANDMARKS ONLY · NO MASK";
       ui.engineLabel.textContent="MEDIAPIPE POSE · ON DEVICE";
       return true;
     }catch(e){
@@ -369,7 +380,7 @@
       scannerStatus("SCANNING");
       scanning=true;sessionStart=Date.now();
       ui.idleArt.hidden=true;
-      if(settings.skeleton)await ensureModel();
+      if(settings.skeleton||settings.mode==="figure")await ensureModel();
       else{ui.diagModel.textContent="SKIPPED FOR DOT FPS";ui.engineLabel.textContent="OPTICAL SCANNER ONLY";}
       if(token!==scanGeneration)return;
       hideLoading();renderButtons();resizeCanvas();
@@ -390,6 +401,7 @@
     ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];lastVideoTime=-1;lastModelTime=0;
     ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.renderFpsMetric.textContent="0";renderFrames=0;renderWindowAt=0;dynamicModelInterval=0;averageInferenceMs=0;ui.dotCount.textContent="0";dotEngine?.clear();dotsFrozen=false;ui.freezeDotBtn.textContent="❄ FREEZE DOTS";
     ui.engineLabel.textContent=landmarker?"MODEL READY":"AI MODEL STANDBY";
+    ui.figureStatus.textContent="WAITING FOR CAMERA";ui.figurePreviewLabel.textContent="NO VISIBLE SUBJECT";
     ui.diagCamera.textContent="OFFLINE";scannerStatus("IDLE");renderButtons();
   }
   async function flipCamera(){
