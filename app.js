@@ -133,7 +133,7 @@
     ui.importFile.value="";
   }
   let stream=null,landmarker=null,scanning=false,starting=false,switching=false,recording=false,modelFailed=false;
-  let lastVideoTime=-1,lastModelTime=0,inferenceTimes=[],sessionStart=0,raf=0,front=false,torch=false,wakeLock=null;
+  let lastVideoTime=-1,lastModelTime=0,inferenceTimes=[],sessionStart=0,raf=0,front=false,torch=false,wakeLock=null,scanGeneration=0;
   let currentPoses=[],trails=[],tracked=[],nextTrackId=1,modelStatus="STANDBY",recorder=null,recorderStream=null,parts=[];
   let micStream=null,audioContext=null,analyser=null,audioBuffer=null,audioRaf=0,peakSince=0,lastPeak=0,installPrompt=null;
   const dotSampler=document.createElement("canvas");
@@ -266,21 +266,31 @@
     for(const landmarks of poses){
       const core=[landmarks[11],landmarks[12],landmarks[23],landmarks[24]].filter(Boolean);
       if(!core.length)continue;
+      const score=core.reduce((n,p)=>n+(p.visibility??1),0)/core.length;
+      if(score<.52)continue;
       const cx=core.reduce((n,v)=>n+v.x,0)/core.length,cy=core.reduce((n,v)=>n+v.y,0)/core.length;
       let track=null,min=0.20;
       for(const candidate of tracked){
         const dist=Math.hypot(candidate.cx-cx,candidate.cy-cy);
         if(!found.includes(candidate)&&dist<min){track=candidate;min=dist;}
       }
-      if(!track){track={id:nextTrackId++,cx,cy,first:now,last:now,confirmed:false,landmarks};tracked.push(track);}
-      else{track.cx=track.cx*.35+cx*.65;track.cy=track.cy*.35+cy*.65;track.last=now;track.landmarks=landmarks;}
+      if(!track){track={id:nextTrackId++,cx,cy,first:now,last:now,confirmed:false,landmarks,smoothed:landmarks};tracked.push(track);}
+      else{
+        track.cx=track.cx*.55+cx*.45;track.cy=track.cy*.55+cy*.45;track.last=now;
+        track.smoothed=landmarks.map((p,j)=>{
+          const last=track.smoothed?.[j];if(!p||!last)return p;
+          const blend=.4;return {...p,x:last.x*(1-blend)+p.x*blend,y:last.y*(1-blend)+p.y*blend};
+        });
+        track.landmarks=track.smoothed;
+      }
       found.push(track);
-      if(!track.confirmed && now-track.first>900){
+      if(!track.confirmed && now-track.first>(settings.figureStability?1500:900)){
         track.confirmed=true;
         appendEvent("pose",`Pose pattern #${track.id}`,`Human-like body pattern sustained for ≥0.9 seconds. This is not evidence of paranormal activity.`);
       }
     }
-    tracked=tracked.filter(t=>now-t.last<1100);
+    tracked=tracked.filter(t=>now-t.last<1250);
+    currentPoses=found.map(t=>t.smoothed||t.landmarks);
     ui.poseMetric.textContent=String(found.length);
     ui.poseNotice.hidden=!found.length;
     if(found.length){
@@ -348,16 +358,20 @@
   async function startScanner(){
     if(starting||scanning)return;
     if(!navigator.mediaDevices?.getUserMedia){toast("Camera needs HTTPS and browser permission.",true);return;}
+    const token=++scanGeneration;
     starting=true;renderButtons();showLoading("Connecting camera","Requesting video permission...");
     try{
       stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:front?"user":"environment"},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:settings.speed==="ultra"?60:settings.speed==="turbo"?60:30,max:60}},audio:false});
+      if(token!==scanGeneration){stopStream();return;}
       video.srcObject=stream;await video.play();
+      if(token!==scanGeneration){stopStream();return;}
       ui.diagCamera.textContent="CONNECTED";
       scannerStatus("SCANNING");
       scanning=true;sessionStart=Date.now();
       ui.idleArt.hidden=true;
       if(settings.skeleton)await ensureModel();
       else{ui.diagModel.textContent="SKIPPED FOR DOT FPS";ui.engineLabel.textContent="OPTICAL SCANNER ONLY";}
+      if(token!==scanGeneration)return;
       hideLoading();renderButtons();resizeCanvas();
       requestAnimationFrame(renderFrame);
       if(settings.wake)acquireWake();
@@ -372,8 +386,8 @@
   function stopScanner(){
     if(!scanning && !starting)return;
     if(recording)stopRecording();
-    scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();figureEngine?.reset();
-    ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];
+    scanGeneration++;scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();figureEngine?.reset();
+    ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];lastVideoTime=-1;lastModelTime=0;
     ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.renderFpsMetric.textContent="0";renderFrames=0;renderWindowAt=0;dynamicModelInterval=0;averageInferenceMs=0;ui.dotCount.textContent="0";dotEngine?.clear();dotsFrozen=false;ui.freezeDotBtn.textContent="❄ FREEZE DOTS";
     ui.engineLabel.textContent=landmarker?"MODEL READY":"AI MODEL STANDBY";
     ui.diagCamera.textContent="OFFLINE";scannerStatus("IDLE");renderButtons();
