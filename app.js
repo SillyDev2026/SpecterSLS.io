@@ -289,7 +289,7 @@
       found.push(track);
       if(!track.confirmed && now-track.first>(settings.figureStability?1500:900)){
         track.confirmed=true;
-        appendEvent("pose",`Pose pattern #${track.id}`,`Human-like body pattern sustained for ≥0.9 seconds. This is not evidence of paranormal activity.`);
+        appendEvent("pose",`Pose pattern #${track.id}`,`Human-like body pattern sustained for at least ${settings.figureStability?'1.5':'0.9'} seconds. This is not evidence of paranormal activity.`);
       }
     }
     tracked=tracked.filter(t=>now-t.last<1250);
