@@ -1,7 +1,7 @@
 (function specterApp() {
   "use strict";
   const $ = id => document.getElementById(id);
-  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","renderFpsMetric","dotPalette","dotView","dotOverlay","dotCount","opticalPointLabel","dotActions","freezeDotBtn","exportDotBtn"];
+  const ids = ["stage","cameraVideo","cameraCanvas","idleArt","loadingPanel","loadingTitle","loadingSubtitle","poseNotice","poseNoticeTitle","poseNoticeSubtitle","startBtn","startText","photoBtn","recordBtn","recordGlyph","recordText","markBtn","flipBtn","torchBtn","fullscreenBtn","cameraName","recordLed","hudMode","hudClock","engineLabel","displaySize","stateBadge","stateLabel","sessionIdentifier","poseMetric","fpsMetric","durationMetric","eventMetric","sessionName","sessionInfo","newSessionBtn","sessionPicker","audioStatus","audioMetric","waveCanvas","micCheck","audioMarkCheck","timelineCount","timeline","eventFilter","exportBtn","csvBtn","importBtn","importFile","clearBtn","thresholdRange","thresholdLabel","speedSelect","skeletonCheck","trailCheck","wakeCheck","diagModel","diagCamera","diagStorage","markModal","closeModalBtn","cancelMarkBtn","markCategory","markNote","saveMarkBtn","toast","installBtn","dotDensity","dotDensityLabel","dotSensitivity","dotSensitivityLabel","figureView","figureCutoff","figureCutoffLabel","figureStability","figureDetails","figureStatus","figureShapeCount","figureConfidence","figureMaskStatus","renderFpsMetric","dotPalette","dotView","dotOverlay","dotCount","opticalPointLabel","dotActions","freezeDotBtn","exportDotBtn"];
   const ui = Object.fromEntries(ids.map(id => [id,$(id)]));
   const canvas = ui.cameraCanvas, video = ui.cameraVideo, ctx = canvas.getContext("2d",{alpha:false});
   const waveCtx = ui.waveCanvas.getContext("2d");
@@ -11,7 +11,7 @@
   const TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35/vision_bundle.mjs";
   const STORE_KEY = "spectersls.v2.sessions";
   const SET_KEY = "spectersls.v2.settings";
-  const defaultSettings = {mode:"sls",visibility:55,speed:"balanced",skeleton:true,trails:true,wake:false,dotDensity:3,dotSensitivity:3,dotPalette:"lime",dotView:"surface",dotOverlay:false};
+  const defaultSettings = {mode:"sls",visibility:55,speed:"balanced",skeleton:true,trails:true,wake:false,dotDensity:3,dotSensitivity:3,dotPalette:"lime",dotView:"surface",dotOverlay:false,figureView:"outline",figureCutoff:55,figureStability:true};
   let settings = {...defaultSettings}, sessions = [], activeId = "";
   try {
     const fromStorage = JSON.parse(localStorage.getItem(SET_KEY)||"{}");
@@ -19,7 +19,7 @@
       if (typeof fromStorage[key] === typeof defaultSettings[key]) settings[key] = fromStorage[key];
     }
   } catch {}
-  const allowedModes = ["sls","night","mono","normal","dots"];
+  const allowedModes = ["sls","night","mono","normal","dots","figure"];
   if (!allowedModes.includes(settings.mode)) settings.mode = "sls";
   if (!["balanced","battery","fast","turbo","ultra"].includes(settings.speed)) settings.speed = "balanced";
   settings.visibility = Math.max(20,Math.min(90,Math.round(settings.visibility / 5) * 5));
@@ -27,6 +27,8 @@
   settings.dotSensitivity=Math.max(1,Math.min(5,Math.round(settings.dotSensitivity)));
   if(!["lime","cyan","thermal"].includes(settings.dotPalette))settings.dotPalette="lime";
   if(!["surface","edges","all"].includes(settings.dotView))settings.dotView="surface";
+  if(!["outline","silhouette","xray","boxes"].includes(settings.figureView))settings.figureView="outline";
+  settings.figureCutoff=Math.min(85,Math.max(35,Math.round(settings.figureCutoff/5)*5));
   try {
     const stored = JSON.parse(localStorage.getItem(STORE_KEY)||"{}");
     if (Array.isArray(stored.sessions)) {
@@ -137,6 +139,8 @@
   const dotSampler=document.createElement("canvas");
   const dotContext=dotSampler.getContext("2d",{willReadFrequently:true});
   let prevDotLight=null,dotParticles=[],lastDotUpdate=0,dotsFrozen=false;
+  const figureEngine=window.SpecterFigureEngine?.create({canvas,video,ctx});
+  let configuringMasks=false,maskOptionEnabled=false,maskSyncTask=null;
   const dotEngine=window.SpecterDotEngine?.create({
     canvas,video,ctx,getFront:()=>front,getSettings:()=>settings,
     onSample:(points)=>{dotParticles=points;ui.dotCount.textContent=points.length.toLocaleString();}
@@ -183,6 +187,7 @@
     if(settings.mode==="night")ctx.filter="grayscale(1) sepia(1) hue-rotate(48deg) saturate(3) brightness(1.3) contrast(1.3)";
     else if(settings.mode==="mono")ctx.filter="grayscale(1) contrast(1.55)";
     else if(settings.mode==="sls")ctx.filter="grayscale(1) sepia(.6) hue-rotate(58deg) saturate(1.6) brightness(.85)";
+    else if(settings.mode==="figure")ctx.filter="contrast(1.27) brightness(1.12) saturate(.72)";
     else if(settings.mode==="dots"){ctx.filter="grayscale(1) sepia(.8) hue-rotate(45deg) saturate(2) brightness(.7)";ctx.globalAlpha=settings.dotOverlay?.24:0;}
     const a=coverParams();
     if(front){ctx.translate(canvas.width,0);ctx.scale(-1,1);}
@@ -217,7 +222,7 @@
     // Video/currentTime gating prevents wasted inference of duplicate camera frames.
     // Adaptively limit ML CPU/GPU work when a detection takes longer than budget.
     const modelBudget=Math.max(speedInterval(),dynamicModelInterval);
-    if(landmarker && video.readyState>=2 && now-lastModelTime>=modelBudget && video.currentTime!==lastVideoTime){
+    if(landmarker && !configuringMasks && video.readyState>=2 && now-lastModelTime>=modelBudget && video.currentTime!==lastVideoTime){
       lastModelTime=now;lastVideoTime=video.currentTime;
       try{
         const started=performance.now();
@@ -227,13 +232,29 @@
         dynamicModelInterval=Math.min(220,Math.max(0,averageInferenceMs*1.2));
         currentPoses=(result.landmarks||[]).slice(0,3);
         updateTracking(currentPoses,now);
+        if(settings.mode==="figure")figureEngine?.update(result,now);
+        else for(const mask of result.segmentationMasks||[])try{mask.close?.();}catch{}
         inferenceTimes.push(now);
       }catch(e){
         if(!modelFailed){modelFailed=true;ui.diagModel.textContent="INFERENCE FAILED";toast("Pose model failed: "+e.message,true);}
         landmarker?.close?.();landmarker=null;
       }
     }
+    if(settings.mode==="figure"&&figureEngine){
+      figureEngine.draw({...settings,cover:coverParams(),front},now);
+    }
     if(settings.skeleton)drawPoses(now);
+    if(now-lastModelTime>1800&&currentPoses.length){
+      currentPoses=[];tracked=[];figureEngine?.reset();
+      ui.poseMetric.textContent="0";ui.poseNotice.hidden=true;
+    }
+    if(settings.mode==="figure"&&now-lastHudTime>250){
+      const fig=figureEngine?.details();
+      ui.figureShapeCount.textContent=String(fig?.poseCount||0);
+      ui.figureConfidence.textContent=fig?.poseCount?Math.round((fig.confidence||0)*100)+"%":"—";
+      ui.figureMaskStatus.textContent=fig?.hasMasks?"REAL PIXEL MASK":fig?.poseCount?"LANDMARKS ONLY":"NO FIGURE";
+      ui.figureStatus.textContent=fig?.poseCount?"BODY PATTERN DETECTED":"NO PERSON SHAPE";
+    }
     if(now-lastHudTime>150){
       ui.hudClock.textContent=fmtTime(Date.now()-sessionStart,true);
       ui.durationMetric.textContent=fmtTime(Date.now()-sessionStart);
@@ -298,8 +319,10 @@
       const vision=await import(TASKS_URL);
       const fileset=await vision.FilesetResolver.forVisionTasks(WASM_URL);
       const create=delegate=>vision.PoseLandmarker.createFromOptions(fileset,{baseOptions:{modelAssetPath:MODEL_URL,delegate},runningMode:"VIDEO",numPoses:3,
-        minPoseDetectionConfidence:.5,minPosePresenceConfidence:.5,minTrackingConfidence:.5});
+        minPoseDetectionConfidence:.55,minPosePresenceConfidence:.55,minTrackingConfidence:.58,
+        outputSegmentationMasks:settings.mode==="figure"});
       try{landmarker=await create("GPU");}catch{landmarker=await create("CPU");}
+      maskOptionEnabled=settings.mode==="figure";
       ui.diagModel.textContent="READY";
       ui.engineLabel.textContent="MEDIAPIPE POSE · ON DEVICE";
       return true;
@@ -308,6 +331,19 @@
       toast(`Camera works, but pose tracking could not load: ${e.message}`,true);
       return false;
     }
+  }
+  async function syncFigureOptions(){
+    if(!landmarker||maskSyncTask)return maskSyncTask;
+    maskSyncTask=(async()=>{
+      while(landmarker && maskOptionEnabled!==(settings.mode==="figure")){
+        const enabled=settings.mode==="figure";
+        configuringMasks=true;
+        try{await landmarker.setOptions({outputSegmentationMasks:enabled});maskOptionEnabled=enabled;}
+        catch(e){ui.figureStatus.textContent="MASK UNAVAILABLE · LANDMARKS ONLY";break;}
+        finally{configuringMasks=false;}
+      }
+    })();
+    try{await maskSyncTask;}finally{maskSyncTask=null;}
   }
   async function startScanner(){
     if(starting||scanning)return;
@@ -336,7 +372,7 @@
   function stopScanner(){
     if(!scanning && !starting)return;
     if(recording)stopRecording();
-    scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();
+    scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();figureEngine?.reset();
     ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];
     ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.renderFpsMetric.textContent="0";renderFrames=0;renderWindowAt=0;dynamicModelInterval=0;averageInferenceMs=0;ui.dotCount.textContent="0";dotEngine?.clear();dotsFrozen=false;ui.freezeDotBtn.textContent="❄ FREEZE DOTS";
     ui.engineLabel.textContent=landmarker?"MODEL READY":"AI MODEL STANDBY";
@@ -446,8 +482,11 @@
   }
   function setMode(mode){
     if(!allowedModes.includes(mode))return;
-    settings.mode=mode;ui.hudMode.textContent=({sls:"SLS GREEN",night:"NIGHT VISION",mono:"MONO",normal:"NATURAL",dots:"OPTICAL DOT CLOUD"})[mode];
-    ui.opticalPointLabel.textContent=mode==="dots"?"LIVE CAMERA PIXEL DOTS":"OPTICAL DOT FIELD";
+    settings.mode=mode;ui.hudMode.textContent=({sls:"SLS GREEN",night:"NIGHT VISION",mono:"MONO",normal:"NATURAL",dots:"OPTICAL DOT CLOUD",figure:"FIGURE SCAN"})[mode];
+    ui.opticalPointLabel.textContent=mode==="dots"?"LIVE CAMERA PIXEL DOTS":mode==="figure"?"BODY FIGURE OVERLAY":"OPTICAL DOT FIELD";
+    ui.figureDetails.hidden=mode!=="figure";
+    if(scanning&&mode==="figure"&&!landmarker)ensureModel().finally(hideLoading);
+    if(scanning&&landmarker)syncFigureOptions();
     ui.dotActions.hidden=mode!=="dots";
     if(mode!=="dots"){dotsFrozen=false;ui.freezeDotBtn.textContent="❄ FREEZE DOTS";}
     if(mode!=="dots")ui.dotCount.textContent="0";
@@ -525,6 +564,9 @@
     ui.dotPalette.addEventListener("change",()=>{settings.dotPalette=ui.dotPalette.value;dotEngine?.invalidate();persistSettings();});
     ui.dotView.addEventListener("change",()=>{settings.dotView=ui.dotView.value;dotEngine?.invalidate();persistSettings();});
     ui.dotOverlay.addEventListener("change",()=>{settings.dotOverlay=ui.dotOverlay.checked;persistSettings();});
+    ui.figureView.addEventListener("change",()=>{settings.figureView=ui.figureView.value;persistSettings();});
+    ui.figureCutoff.addEventListener("input",()=>{settings.figureCutoff=Number(ui.figureCutoff.value);ui.figureCutoffLabel.textContent=settings.figureCutoff+"%";persistSettings();});
+    ui.figureStability.addEventListener("change",()=>{settings.figureStability=ui.figureStability.checked;persistSettings();});
     ui.skeletonCheck.addEventListener("change",()=>{settings.skeleton=ui.skeletonCheck.checked;persistSettings();if(scanning&&settings.skeleton&&!landmarker)ensureModel().finally(hideLoading);});
     ui.trailCheck.addEventListener("change",()=>{settings.trails=ui.trailCheck.checked;trails=[];persistSettings();});
     ui.wakeCheck.addEventListener("change",()=>{
@@ -548,6 +590,7 @@
     ui.dotDensity.value=settings.dotDensity;ui.dotDensityLabel.textContent=["","Low","Medium","High","Very high","Ultra"][settings.dotDensity];
     ui.dotSensitivity.value=settings.dotSensitivity;ui.dotSensitivityLabel.textContent=["","Low","Medium","High","Very high","Ultra"][settings.dotSensitivity];
     ui.dotPalette.value=settings.dotPalette;ui.dotView.value=settings.dotView;ui.dotOverlay.checked=settings.dotOverlay;
+    ui.figureView.value=settings.figureView;ui.figureCutoff.value=settings.figureCutoff;ui.figureCutoffLabel.textContent=settings.figureCutoff+"%";ui.figureStability.checked=settings.figureStability;
     ui.skeletonCheck.checked=settings.skeleton;
     ui.trailCheck.checked=settings.trails;ui.wakeCheck.checked=settings.wake;
     setMode(settings.mode);persist();renderSessions();renderButtons();resizeCanvas();sizeWave();attach();drawWave();switchTab("scan");
