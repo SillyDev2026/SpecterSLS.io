@@ -86,9 +86,9 @@
         const ww=maskCanvas.width,hh=maskCanvas.height;
         if(matteCanvas.width!==ww||matteCanvas.height!==hh){matteCanvas.width=ww;matteCanvas.height=hh;}
         if(matteContext){
-          matteContext.clearRect(0,0,ww,hh);
-          // Cache thresholded person pixels until an inference or mask setting changes.
+          // Preserve cached matte on display frames without a new inference.
           if(matteRevision!==revision||matteMode!==mode||matteCutoff!==cutoff){
+          matteContext.clearRect(0,0,ww,hh);
           const raw=maskContext.getImageData(0,0,ww,hh);
           const src=raw.data;
           const output=matteContext.createImageData(ww,hh);
