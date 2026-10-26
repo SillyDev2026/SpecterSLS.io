@@ -140,7 +140,7 @@
   const dotContext=dotSampler.getContext("2d",{willReadFrequently:true});
   let prevDotLight=null,dotParticles=[],lastDotUpdate=0,dotsFrozen=false;
   const figureEngine=window.SpecterFigureEngine?.create({canvas,video,ctx});
-  let configuringMasks=false,maskOptionEnabled=false,maskSyncTask=null;
+  let configuringMasks=false,maskOptionEnabled=false,maskSyncTask=null,modelLoadPromise=null,micGeneration=0;
   const dotEngine=window.SpecterDotEngine?.create({
     canvas,video,ctx,getFront:()=>front,getSettings:()=>settings,
     onSample:(points)=>{dotParticles=points;ui.dotCount.textContent=points.length.toLocaleString();}
@@ -325,33 +325,40 @@
   }
   async function ensureModel(){
     if(landmarker)return true;
-    showLoading("Loading pose analysis","Downloading the on-device computer-vision model...");
-    ui.diagModel.textContent="LOADING";
-    try{
-      const vision=await import(TASKS_URL);
-      const fileset=await vision.FilesetResolver.forVisionTasks(WASM_URL);
-      const create=(delegate,masks)=>vision.PoseLandmarker.createFromOptions(fileset,{baseOptions:{modelAssetPath:MODEL_URL,delegate},runningMode:"VIDEO",numPoses:3,
-        minPoseDetectionConfidence:.55,minPosePresenceConfidence:.55,minTrackingConfidence:.58,
-        outputSegmentationMasks:masks});
-      const wantMask=settings.mode==="figure";
-      try{landmarker=await create("GPU",wantMask);maskOptionEnabled=wantMask;}
-      catch{
-        try{landmarker=await create("CPU",wantMask);maskOptionEnabled=wantMask;}
-        catch{
-          // Segmentation may be unavailable even when regular pose tracking works.
-          try{landmarker=await create("GPU",false);maskOptionEnabled=false;}
-          catch{landmarker=await create("CPU",false);maskOptionEnabled=false;}
+    if(modelLoadPromise)return modelLoadPromise;
+    modelLoadPromise=(async()=>{
+      showLoading("Loading pose analysis","Preparing on-device human pose estimation...");
+      ui.diagModel.textContent="LOADING";
+      try{
+        const vision=await import(TASKS_URL);
+        const fileset=await vision.FilesetResolver.forVisionTasks(WASM_URL);
+        const desiredMasks=settings.mode==="figure";
+        const create=(delegate,masks)=>vision.PoseLandmarker.createFromOptions(fileset,{
+          baseOptions:{modelAssetPath:MODEL_URL,delegate},runningMode:"VIDEO",numPoses:3,
+          minPoseDetectionConfidence:.55,minPosePresenceConfidence:.55,
+          minTrackingConfidence:.58,outputSegmentationMasks:masks
+        });
+        const attempts=[["GPU",desiredMasks],["CPU",desiredMasks]];
+        if(desiredMasks)attempts.push(["GPU",false],["CPU",false]);
+        let lastError;
+        for(const [delegate,masks] of attempts){
+          try{landmarker=await create(delegate,masks);maskOptionEnabled=masks;break;}
+          catch(e){lastError=e;}
         }
+        if(!landmarker)throw lastError||Error("No pose model delegate was available");
+        ui.diagModel.textContent="READY";
+        ui.engineLabel.textContent="MEDIAPIPE POSE · ON DEVICE";
+        if(settings.mode==="figure"&&!maskOptionEnabled)ui.figureStatus.textContent="LANDMARKS ONLY · NO MASK";
+        return true;
+      }catch(e){
+        modelFailed=true;ui.diagModel.textContent="UNAVAILABLE";
+        ui.engineLabel.textContent="CAMERA ONLY · POSE MODEL FAILED";
+        toast("Pose model unavailable: "+(e.message||e),true);
+        return false;
       }
-      ui.diagModel.textContent="READY";
-      if(settings.mode==="figure"&&!maskOptionEnabled)ui.figureStatus.textContent="LANDMARKS ONLY · NO MASK";
-      ui.engineLabel.textContent="MEDIAPIPE POSE · ON DEVICE";
-      return true;
-    }catch(e){
-      modelFailed=true;ui.diagModel.textContent="UNAVAILABLE";ui.engineLabel.textContent="CAMERA ONLY · POSE MODEL FAILED";
-      toast(`Camera works, but pose tracking could not load: ${e.message}`,true);
-      return false;
-    }
+    })();
+    try{return await modelLoadPromise;}
+    finally{modelLoadPromise=null;}
   }
   async function syncFigureOptions(){
     if(!landmarker||maskSyncTask)return maskSyncTask;
@@ -454,8 +461,11 @@
   }
   async function startMic(){
     if(micStream)return;
+    const token=++micGeneration;
     try{
-      micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+      const pending=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false},video:false});
+      if(token!==micGeneration||!ui.micCheck.checked){pending.getTracks().forEach(t=>t.stop());return;}
+      micStream=pending;
       audioContext=new (window.AudioContext||window.webkitAudioContext)();await audioContext.resume();
       analyser=audioContext.createAnalyser();analyser.fftSize=1024;
       audioContext.createMediaStreamSource(micStream).connect(analyser);
@@ -465,6 +475,7 @@
     }catch(e){stopMic();ui.micCheck.checked=false;toast(`Microphone failed: ${e.message}`,true);}
   }
   function stopMic(){
+    micGeneration++;
     micStream?.getTracks().forEach(t=>t.stop());micStream=null;audioContext?.close?.().catch(()=>{});
     audioContext=null;analyser=null;audioBuffer=null;peakSince=0;
     ui.audioStatus.textContent="MIC OFF";ui.audioStatus.style.color="";ui.audioMetric.textContent="—";
@@ -546,12 +557,12 @@
     ui.sessionName.addEventListener("change",renderSessions);
     ui.newSessionBtn.addEventListener("click",()=>{
       if(recording){toast("Stop video recording before changing investigation.",true);return;}
-      if(scanning)stopScanner();
+      if(scanning||starting)stopScanner();
       sessions.unshift(makeSession());sessions=sessions.slice(0,25);activeId=sessions[0].id;persist();renderSessions();toast("New investigation ready.");
     });
     ui.sessionPicker.addEventListener("change",()=>{
       if(recording){ui.sessionPicker.value=activeId;toast("Stop recording before changing session.",true);return;}
-      if(scanning)stopScanner();activeId=ui.sessionPicker.value;persist();renderSessions();
+      if(scanning||starting)stopScanner();activeId=ui.sessionPicker.value;persist();renderSessions();
     });
     ui.eventFilter.addEventListener("change",renderTimeline);
     ui.exportBtn.addEventListener("click",exportJson);ui.csvBtn.addEventListener("click",exportCsv);
@@ -604,7 +615,7 @@
     });
     window.addEventListener("resize",()=>{resizeCanvas();sizeWave();});
     document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&settings.wake)acquireWake();});
-    window.addEventListener("pagehide",()=>{if(recording)stopRecording();if(scanning)stopScanner();stopMic();});
+    window.addEventListener("pagehide",()=>{if(recording)stopRecording();if(scanning||starting)stopScanner();stopMic();});
     window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();installPrompt=e;ui.installBtn.hidden=false;});
     ui.installBtn.addEventListener("click",async()=>{if(!installPrompt)return;installPrompt.prompt();await installPrompt.userChoice;installPrompt=null;ui.installBtn.hidden=true;});
   }
