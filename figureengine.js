@@ -10,9 +10,10 @@
     const matteCanvas=document.createElement("canvas"),matteContext=matteCanvas.getContext("2d");
     let segmentationReady=false,hasMasks=false,poseCount=0,confidence=0,revision=0;
     let shapeInfo=[],lastResultTime=0,maskError="";
+    let matteRevision=-1,matteMode="",matteCutoff=-1;
     const sampleWidth=128,sampleHeight=128;
     function reset(){
-      segmentationReady=false;hasMasks=false;poseCount=0;confidence=0;shapeInfo=[];lastResultTime=0;maskError="";
+      segmentationReady=false;hasMasks=false;poseCount=0;confidence=0;shapeInfo=[];lastResultTime=0;maskError="";matteRevision=-1;
       if(matteContext)matteContext.clearRect(0,0,matteCanvas.width,matteCanvas.height);
     }
     function update(result,now=performance.now()){
@@ -86,7 +87,8 @@
         if(matteCanvas.width!==ww||matteCanvas.height!==hh){matteCanvas.width=ww;matteCanvas.height=hh;}
         if(matteContext){
           matteContext.clearRect(0,0,ww,hh);
-          // Build an actual thresholded person matte. No synthetic person pixels.
+          // Cache thresholded person pixels until an inference or mask setting changes.
+          if(matteRevision!==revision||matteMode!==mode||matteCutoff!==cutoff){
           const raw=maskContext.getImageData(0,0,ww,hh);
           const src=raw.data;
           const output=matteContext.createImageData(ww,hh);
@@ -103,6 +105,8 @@
             dst[j]=mode==="xray"?67:150;dst[j+1]=255;dst[j+2]=mode==="xray"?255:109;dst[j+3]=op;
           }
           matteContext.putImageData(output,0,0);
+          matteRevision=revision;matteMode=mode;matteCutoff=cutoff;
+          }
           if(settings.front){ctx.translate(canvas.width,0);ctx.scale(-1,1);}
           ctx.imageSmoothingEnabled=true;
           ctx.drawImage(matteCanvas,a.left,a.top,a.width,a.height);
@@ -130,8 +134,30 @@
       }
       ctx.restore();
     }
+    function preview(target,front=false){
+      if(!target)return false;
+      const p=target.getContext("2d");if(!p)return false;
+      const w=target.width,h=target.height;
+      p.fillStyle="#07130e";p.fillRect(0,0,w,h);
+      if(!shapeInfo.length||!video.videoWidth||!video.videoHeight){
+        p.fillStyle="#668377";p.font="12px monospace";p.fillText("NO CAMERA FIGURE",Math.max(4,w*.16),h*.53);
+        return false;
+      }
+      const b=shapeInfo[0];
+      let x0=Math.max(0,b.minX-.12),y0=Math.max(0,b.minY-.16);
+      let x1=Math.min(1,b.maxX+.12),y1=Math.min(1,b.maxY+.16);
+      const sx=x0*video.videoWidth,sy=y0*video.videoHeight;
+      const sw=Math.max(2,(x1-x0)*video.videoWidth),sh=Math.max(2,(y1-y0)*video.videoHeight);
+      // Original optical pixels only: focus/zoom is a crop, not appearance generation.
+      p.save();p.filter="brightness(1.32) contrast(1.23) saturate(.88)";
+      if(front){p.translate(w,0);p.scale(-1,1);}
+      const scale=Math.min(w/sw,h/sh),dw=sw*scale,dh=sh*scale;
+      p.drawImage(video,sx,sy,sw,sh,(w-dw)*.5,(h-dh)*.5,dw,dh);
+      p.restore();
+      return true;
+    }
     function details(){return {poseCount,hasMasks,confidence,segmentationReady,maskError,revision};}
-    return {update,draw,details,reset};
+    return {update,draw,details,preview,reset};
   }
   root.SpecterFigureEngine={create};
 })(window);
