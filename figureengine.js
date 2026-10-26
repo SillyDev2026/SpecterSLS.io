@@ -1,4 +1,4 @@
-/* SpecterSLS Figure Scan · v2.5
+/* SpecterSLS Figure Scan · v2.5.1
    Camera-person visualization with real MediaPipe segmentation pixels.
    Never infers ghosts or draws imaginary body shapes.
 */
@@ -16,31 +16,35 @@
       segmentationReady=false;hasMasks=false;poseCount=0;confidence=0;shapeInfo=[];lastResultTime=0;maskError="";matteRevision=-1;
       if(matteContext)matteContext.clearRect(0,0,matteCanvas.width,matteCanvas.height);
     }
+    function expire(now=performance.now()){
+      if(poseCount&&now-lastResultTime>750)reset();
+    }
     function update(result,now=performance.now()){
       const poses=(result?.landmarks||[]).slice(0,3);
       const masks=result?.segmentationMasks||[];
+      const selectedMasks=Array.isArray(result?.maskIndices)?result.maskIndices.map(i=>masks[i]).filter(Boolean):masks.slice(0,poses.length);
       poseCount=poses.length;hasMasks=false;shapeInfo=[];lastResultTime=now;
       const vis=poses.flatMap(p=>[11,12,23,24].map(i=>p[i]?.visibility).filter(v=>Number.isFinite(v)));
       confidence=vis.length?vis.reduce((a,b)=>a+b,0)/vis.length:0;
-      for(const landmarks of poses){
+      for(const [index,landmarks] of poses.entries()){
         const points=landmarks.filter(p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&(p.visibility??1)>=.4);
         if(points.length<4)continue;
         const minX=clamp(Math.min(...points.map(p=>p.x)),0,1);
         const maxX=clamp(Math.max(...points.map(p=>p.x)),0,1);
         const minY=clamp(Math.min(...points.map(p=>p.y)),0,1);
         const maxY=clamp(Math.max(...points.map(p=>p.y)),0,1);
-        shapeInfo.push({minX,maxX,minY,maxY,score:points.reduce((n,p)=>n+(p.visibility??1),0)/points.length});
+        shapeInfo.push({minX,maxX,minY,maxY,id:result.trackIds?.[index]??index+1,score:points.reduce((n,p)=>n+(p.visibility??1),0)/points.length});
       }
       try{
-        if(masks.length&&maskContext){
+        if(poses.length&&selectedMasks.length&&maskContext){
           // The MediaPipe mask is a probability of PERSON pixels.
           // Copy it before releasing the media task result's GPU/CPU buffers.
-          const w=clamp(masks[0].width|0,1,4096),h=clamp(masks[0].height|0,1,4096);
           const outputW=sampleWidth,outputH=sampleHeight;
           if(maskCanvas.width!==outputW||maskCanvas.height!==outputH){maskCanvas.width=outputW;maskCanvas.height=outputH;}
           const pixels=maskContext.createImageData(outputW,outputH);
           const data=pixels.data;
-          const maps=masks.slice(0,3).map(m=>({w:m.width|0,h:m.height|0,array:m.getAsFloat32Array()}));
+          const maps=selectedMasks.slice(0,3).map(m=>({w:m.width|0,h:m.height|0,array:m.getAsFloat32Array()}));
+          if(maps.some(m=>m.w<1||m.h<1||m.w>4096||m.h>4096||m.array.length<m.w*m.h))throw Error("Invalid body mask dimensions");
           for(let y=0;y<outputH;y++){
             for(let x=0;x<outputW;x++){
               let person=0;
@@ -74,7 +78,8 @@
         top:clamp(top,0,canvas.height),bottom:clamp(bottom,0,canvas.height)};
     }
     function draw(settings,now=performance.now()){
-      if(!poseCount||now-lastResultTime>1600)return;
+      expire(now);
+      if(!poseCount)return;
       const mode=settings.figureView||"outline";
       const a={
         width:settings.cover.width,height:settings.cover.height,
@@ -124,7 +129,7 @@
         ctx.setLineDash([]);
         const size=clamp(canvas.width/60,11,19);
         ctx.font="600 "+size+"px monospace";
-        const caption="BODY "+(i+1)+" · "+Math.round(shapeInfo[i].score*100)+"% VIS";
+        const caption="BODY "+shapeInfo[i].id+" · "+Math.round(shapeInfo[i].score*100)+"% VIS";
         const width=ctx.measureText(caption).width;
         const yy=Math.max(size+4,b.top-5);
         ctx.fillStyle="#081813";
@@ -135,6 +140,7 @@
       ctx.restore();
     }
     function preview(target,front=false){
+      expire();
       if(!target)return false;
       const p=target.getContext("2d");if(!p)return false;
       const w=target.width,h=target.height;
@@ -156,7 +162,7 @@
       p.restore();
       return true;
     }
-    function details(){return {poseCount,hasMasks,confidence,segmentationReady,maskError,revision};}
+    function details(){expire();return {poseCount,hasMasks,confidence,segmentationReady,maskError,revision};}
     return {update,draw,details,preview,reset};
   }
   root.SpecterFigureEngine={create};

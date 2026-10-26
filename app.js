@@ -222,7 +222,8 @@
     // Video/currentTime gating prevents wasted inference of duplicate camera frames.
     // Adaptively limit ML CPU/GPU work when a detection takes longer than budget.
     const modelBudget=Math.max(speedInterval(),dynamicModelInterval);
-    if(landmarker && !configuringMasks && video.readyState>=2 && now-lastModelTime>=modelBudget && video.currentTime!==lastVideoTime){
+    const needsPose=settings.skeleton||settings.mode==="figure";
+    if(needsPose && landmarker && !switching && !configuringMasks && video.readyState>=2 && now-lastModelTime>=modelBudget && video.currentTime!==lastVideoTime){
       lastModelTime=now;lastVideoTime=video.currentTime;
       try{
         const started=performance.now();
@@ -230,9 +231,11 @@
         const elapsed=performance.now()-started;
         averageInferenceMs=averageInferenceMs?averageInferenceMs*.82+elapsed*.18:elapsed;
         dynamicModelInterval=Math.min(220,Math.max(0,averageInferenceMs*1.2));
-        currentPoses=(result.landmarks||[]).slice(0,3);
-        updateTracking(currentPoses,now);
-        if(settings.mode==="figure")figureEngine?.update(result,now);
+        const accepted=updateTracking((result.landmarks||[]).slice(0,3),now);
+        if(settings.mode==="figure"&&figureEngine)figureEngine.update({
+          landmarks:currentPoses,segmentationMasks:result.segmentationMasks,maskIndices:accepted,
+          trackIds:currentPoses.map(p=>tracked.find(t=>t.landmarks===p)?.id)
+        },now);
         else for(const mask of result.segmentationMasks||[])try{mask.close?.();}catch{}
         inferenceTimes.push(now);
       }catch(e){
@@ -240,14 +243,13 @@
         landmarker?.close?.();landmarker=null;
       }
     }
+    if((!needsPose||now-lastModelTime>750)&&(currentPoses.length||tracked.length||trails.length)){
+      clearDetections();
+    }
     if(settings.mode==="figure"&&figureEngine){
       figureEngine.draw({...settings,cover:coverParams(),front},now);
     }
     if(settings.skeleton)drawPoses(now);
-    if(now-lastModelTime>1800&&currentPoses.length){
-      currentPoses=[];tracked=[];figureEngine?.reset();
-      ui.poseMetric.textContent="0";ui.poseNotice.hidden=true;
-    }
     if(settings.mode==="figure"&&now-lastFigureUiTime>250){
       const present=figureEngine?.preview(ui.figurePreview,front);
       ui.figurePreviewLabel.textContent=present?"LIVE CAMERA BODY CROP":"NO VISIBLE SUBJECT";
@@ -264,35 +266,63 @@
       lastHudTime=now;
     }
   }
+  function clearDetections(){
+    currentPoses=[];tracked=[];trails=[];figureEngine?.reset();
+    ui.poseMetric.textContent="0";ui.poseNotice.hidden=true;
+    ui.figureShapeCount.textContent="0";ui.figureConfidence.textContent="—";
+    ui.figureMaskStatus.textContent="NO FIGURE";ui.figureStatus.textContent="NO PERSON SHAPE";
+    ui.figurePreviewLabel.textContent="NO VISIBLE SUBJECT";
+    figureEngine?.preview(ui.figurePreview,front);
+  }
+  const validLandmark=p=>p&&Number.isFinite(p.x)&&Number.isFinite(p.y)&&
+    Number.isFinite(p.visibility)&&p.visibility>=0&&p.visibility<=1&&
+    (p.presence===undefined||(Number.isFinite(p.presence)&&p.presence>=.35));
   function updateTracking(poses,now){
-    const found=[];
-    for(const landmarks of poses){
-      const core=[landmarks[11],landmarks[12],landmarks[23],landmarks[24]].filter(Boolean);
-      if(!core.length)continue;
-      const score=core.reduce((n,p)=>n+(p.visibility??1),0)/core.length;
-      if(score<.52)continue;
-      const cx=core.reduce((n,v)=>n+v.x,0)/core.length,cy=core.reduce((n,v)=>n+v.y,0)/core.length;
+    const found=[],accepted=[];
+    // Expire before matching: a new sighting must not revive an old confirmation timer.
+    tracked=tracked.filter(t=>now>=t.last&&now-t.last<1250);
+    for(const [sourceIndex,landmarks] of poses.entries()){
+      if(!Array.isArray(landmarks))continue;
+      const core=[11,12,23,24].map(i=>landmarks[i]).filter(p=>validLandmark(p)&&p.visibility>=.35);
+      const visible=landmarks.filter(p=>validLandmark(p)&&p.visibility>=.4&&p.x>=0&&p.x<=1&&p.y>=0&&p.y<=1);
+      // Allow observed upper bodies, but reject isolated joints and collapsed patterns.
+      if(core.length<2||visible.length<5)continue;
+      const width=Math.max(...visible.map(p=>p.x))-Math.min(...visible.map(p=>p.x));
+      const height=Math.max(...visible.map(p=>p.y))-Math.min(...visible.map(p=>p.y));
+      if(width<.012||height<.025)continue;
+      const score=core.reduce((n,p)=>n+p.visibility,0)/core.length;
+      const weight=core.reduce((n,p)=>n+p.visibility,0);
+      const cx=core.reduce((n,p)=>n+p.x*p.visibility,0)/weight,cy=core.reduce((n,p)=>n+p.y*p.visibility,0)/weight;
       let track=null,min=0.20;
       for(const candidate of tracked){
         const dist=Math.hypot(candidate.cx-cx,candidate.cy-cy);
         if(!found.includes(candidate)&&dist<min){track=candidate;min=dist;}
       }
-      if(!track){track={id:nextTrackId++,cx,cy,first:now,last:now,confirmed:false,landmarks,smoothed:landmarks};tracked.push(track);}
+      // A modest confidence hysteresis keeps existing bodies through small score dips.
+      if(score<(track ? .44 : .52))continue;
+      const clean=landmarks.map(p=>validLandmark(p)?{...p}:null);
+      if(!track){track={id:nextTrackId++,cx,cy,first:now,last:now,hits:1,missed:false,confirmed:false,landmarks:clean,smoothed:clean};tracked.push(track);}
       else{
-        track.cx=track.cx*.55+cx*.45;track.cy=track.cy*.55+cy*.45;track.last=now;
-        track.smoothed=landmarks.map((p,j)=>{
-          const last=track.smoothed?.[j];if(!p||!last)return p;
-          const blend=.4;return {...p,x:last.x*(1-blend)+p.x*blend,y:last.y*(1-blend)+p.y*blend};
+        const dt=now-track.last;
+        if(track.missed||dt>450){track.first=now;track.hits=0;}
+        const resumed=track.missed||dt>450;
+        track.cx=cx;track.cy=cy;track.last=now;track.hits++;track.missed=false;
+        track.smoothed=clean.map((p,j)=>{
+          const last=track.smoothed?.[j];if(!p||!last||resumed||last.visibility<.4||p.visibility<.4)return p;
+          // Time-based smoothing damps jitter without dragging behind moving limbs.
+          const motion=Math.hypot(p.x-last.x,p.y-last.y);
+          const blend=Math.min(.92,Math.max(.15,1-Math.exp(-dt/110)+motion*2));
+          return {...p,x:last.x*(1-blend)+p.x*blend,y:last.y*(1-blend)+p.y*blend};
         });
         track.landmarks=track.smoothed;
       }
-      found.push(track);
-      if(!track.confirmed && now-track.first>(settings.figureStability?1500:900)){
+      found.push(track);accepted.push(sourceIndex);
+      if(!track.confirmed && track.hits>=4 && now-track.first>=(settings.figureStability?1500:900)){
         track.confirmed=true;
         appendEvent("pose",`Pose pattern #${track.id}`,`Human-like body pattern sustained for at least ${settings.figureStability?'1.5':'0.9'} seconds. This is not evidence of paranormal activity.`);
       }
     }
-    tracked=tracked.filter(t=>now-t.last<1250);
+    for(const track of tracked)if(!found.includes(track)){track.missed=true;track.hits=0;}
     currentPoses=found.map(t=>t.smoothed||t.landmarks);
     ui.poseMetric.textContent=String(found.length);
     ui.poseNotice.hidden=!found.length;
@@ -304,6 +334,7 @@
       for(const t of found)trails.push({p:point({x:t.cx,y:t.cy}),at:now,color:["#afff6b","#6cfff0","#f5c77f"][t.id%3]});
     }
     trails=trails.filter(t=>now-t.at<1300).slice(-120);
+    return accepted;
   }
   function drawPoses(now){
     ctx.save();
@@ -315,11 +346,11 @@
     ctx.globalAlpha=1;ctx.lineCap="round";ctx.lineJoin="round";
     const s=Math.max(.75,canvas.width/750);
     for(let i=0;i<currentPoses.length;i++){
-      const landmarks=currentPoses[i],color=["#afff6b","#6cfff0","#f5c77f"][i],ok=p=>p&&(p.visibility??1)>=threshold;
+      const landmarks=currentPoses[i],t=tracked.find(t=>t.landmarks===landmarks);
+      const color=["#afff6b","#6cfff0","#f5c77f"][((t?.id||i+1)-1)%3],ok=p=>validLandmark(p)&&p.visibility>=threshold;
       ctx.shadowColor=color;ctx.shadowBlur=10*s;ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=3*s;
       for(const [a,b] of LINKS){if(!ok(landmarks[a])||!ok(landmarks[b]))continue;const p=point(landmarks[a]),q=point(landmarks[b]);ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.stroke();}
       for(const index of [0,11,12,13,14,15,16,23,24,25,26,27,28]){const item=landmarks[index];if(!ok(item))continue;const p=point(item);ctx.beginPath();ctx.arc(p.x,p.y,4*s,0,Math.PI*2);ctx.fill();}
-      const t=tracked.find(t=>t.landmarks===landmarks);
       if(t){const p=point({x:t.cx,y:t.cy});ctx.font=`${12*s}px monospace`;ctx.fillText(`SLS-${String(t.id).padStart(3,"0")}`,p.x+12*s,p.y-12*s);}
     }
     ctx.restore();
@@ -408,8 +439,8 @@
   function stopScanner(){
     if(!scanning && !starting)return;
     if(recording)stopRecording();
-    scanGeneration++;scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();figureEngine?.reset();
-    ui.idleArt.hidden=false;hideLoading();currentPoses=[];tracked=[];trails=[];inferenceTimes=[];lastVideoTime=-1;lastModelTime=0;
+    scanGeneration++;scanning=false;cancelAnimationFrame(raf);stopStream();releaseWake();clearDetections();
+    ui.idleArt.hidden=false;hideLoading();inferenceTimes=[];lastVideoTime=-1;lastModelTime=0;
     ui.poseNotice.hidden=true;ui.poseMetric.textContent="0";ui.fpsMetric.textContent="0";ui.renderFpsMetric.textContent="0";renderFrames=0;renderWindowAt=0;dynamicModelInterval=0;averageInferenceMs=0;ui.dotCount.textContent="0";dotEngine?.clear();dotsFrozen=false;ui.freezeDotBtn.textContent="❄ FREEZE DOTS";
     ui.engineLabel.textContent=landmarker?"MODEL READY":"AI MODEL STANDBY";
     ui.figureStatus.textContent="WAITING FOR CAMERA";ui.figurePreviewLabel.textContent="NO VISIBLE SUBJECT";
@@ -417,10 +448,16 @@
   }
   async function flipCamera(){
     if(!scanning||switching)return;
-    switching=true;front=!front;renderButtons();stopStream();
-    try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:front?"user":"environment"}}});video.srcObject=stream;await video.play();
-      lastVideoTime=-1;tracked=[];trails=[];renderButtons();}
-    catch(e){toast(`Camera switch failed: ${e.message}`,true);stopScanner();}
+    const token=scanGeneration;
+    switching=true;front=!front;renderButtons();stopStream();clearDetections();dotEngine?.clear();
+    try{
+      const nextStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:front?"user":"environment"},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:["turbo","ultra"].includes(settings.speed)?60:30,max:60}},audio:false});
+      if(token!==scanGeneration||!scanning){nextStream.getTracks().forEach(t=>t.stop());return;}
+      stream=nextStream;video.srcObject=stream;await video.play();
+      if(token!==scanGeneration||!scanning)return;
+      lastVideoTime=-1;lastModelTime=0;renderButtons();
+    }
+    catch(e){if(token===scanGeneration){toast(`Camera switch failed: ${e.message}`,true);stopScanner();}}
     finally{switching=false;renderButtons();}
   }
   async function toggleTorch(){
